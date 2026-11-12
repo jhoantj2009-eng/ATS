@@ -107,6 +107,7 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
-  }) //
+  } // <-- 1. Cierra el return {
+})  // <-- 2. Cierra el defineConfig(() => {
 
  
