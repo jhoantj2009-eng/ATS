@@ -1,57 +1,43 @@
-import tailwindcss from '@tailwindcss/vite';
-import react from '@vitejs/plugin-react';
-import path from 'path';
-import {defineConfig} from 'vite';
-import { VitePWA } from 'vite-plugin-pwa';
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
+import { VitePWA } from 'vite-plugin-pwa'
+import path from 'path'
 
 export default defineConfig(() => {
   return {
-   base:'/ATS-/',
+    base: '/ATS-/',
     plugins: [
       react(),
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: [
-          'icon.svg',
-          'icon-maskable.svg',
-          'logo_dcm.svg',
-          'pwa-192x192.png',
-          'pwa-512x512.png',
-          'pwa-maskable-512x512.png',
-          'apple-touch-icon.png',
-        ],
+        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
         manifest: {
-          id: '/',
-          name: 'ATS Seguridad Laboral DCM - Formato F-SST-045',
-          short_name: 'ATS DCM',
-          description: 'Análisis de Trabajo Seguro (ATS) con matriz de 10 pasos generada por IA, firmas digitales, modo offline total y exportación PDF oficial.',
+          name: 'Sistema ATS y Permisos OHS',
+          short_name: 'ATS OHS',
+          description: 'Generador de ATS, Permisos de Alturas y Riesgo Eléctrico',
           theme_color: '#0f172a',
           background_color: '#0f172a',
           display: 'standalone',
-          orientation: 'portrait-primary',
-          start_url: '/',
-          scope: '/',
           icons: [
             {
-              src: '/pwa-192x192.png',
+              src: 'pwa-192x192.png',
               sizes: '192x192',
-              type: 'image/png',
-              purpose: 'any',
+              type: 'image/png'
             },
             {
-              src: '/pwa-512x512.png',
+              src: 'pwa-512x512.png',
               sizes: '512x512',
-              type: 'image/png',
-              purpose: 'any',
+              type: 'image/png'
             },
             {
-              src: '/pwa-maskable-512x512.png',
+              src: 'pwa-maskable-512x512.png',
               sizes: '512x512',
               type: 'image/png',
-              purpose: 'maskable',
-            },
-          ],
+              purpose: 'maskable'
+            }
+          ]
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
@@ -107,7 +93,5 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
-  } // <-- 1. Cierra el return {
-})  // <-- 2. Cierra el defineConfig(() => {
-
- 
+  }
+})
