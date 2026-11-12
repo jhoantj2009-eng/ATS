@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="50%" stop-color="#1e293b" />
+      <stop offset="100%" stop-color="#090d16" />
+    </linearGradient>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284c7" />
+      <stop offset="50%" stop-color="#0369a1" />
+      <stop offset="100%" stop-color="#0c4a6e" />
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="50%" stop-color="#fbbf24" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background with subtle rounded corners -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
+
+  <!-- Outer gold perimeter ring -->
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="none" stroke="url(#goldGrad)" stroke-width="4" opacity="0.4" />
+
+  <!-- Centered Shield Emblem -->
+  <g transform="translate(136, 88) scale(3.75)">
+    <!-- Base del Escudo -->
+    <path d="M 32,2 L 58,13 L 58,38 C 58,54 46,62 32,66 C 18,62 6,54 6,38 L 6,13 Z" fill="url(#shieldGrad)" />
+    <!-- Borde interior dorado -->
+    <path d="M 32,6 L 53,16 L 53,37 C 53,50 43,58 32,62 C 21,58 11,50 11,37 L 11,16 Z" fill="none" stroke="url(#goldGrad)" stroke-width="2" />
+    <!-- Símbolo de Trabajo Seguro en Alturas -->
+    <path d="M 32,15 L 45,37 L 38,37 L 32,27 L 26,37 L 19,37 Z" fill="#ffffff" />
+    <!-- Estrella de Certificación SST -->
+    <path d="M 32,34 L 35,43 L 44,46 L 35,49 L 32,58 L 29,49 L 20,46 L 29,43 Z" fill="url(#goldGrad)" />
+  </g>
+
+  <!-- Banner text ATS SST -->
+  <text x="256" y="415" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="44" font-weight="900" letter-spacing="6" fill="#f8fafc">
+    ATS DCM
+  </text>
+  <text x="256" y="450" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="bold" letter-spacing="4" fill="url(#goldGrad)">
+    SEGURIDAD INDUSTRIAL
+  </text>
+</svg>

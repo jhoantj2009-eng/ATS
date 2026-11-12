@@ -1,0 +1,300 @@
+@import "tailwindcss";
+
+@layer base {
+  html, body {
+    font-family: Arial, Helvetica, 'Plus Jakarta Sans', system-ui, sans-serif;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+}
+
+/* ==========================================================================
+   CSS PAGED MEDIA & REPORTES TÉCNICOS SST (Res. 4272/2021 & Dec. 1072/2015)
+   Configuración estricta de EXACTAMENTE DOS PÁGINAS Carta Vertical (Letter)
+   (Letter: 215.9mm x 279.4mm) con márgenes normalizados de 8mm vertical / 10mm horizontal.
+   ========================================================================== */
+
+@page {
+  size: letter portrait;
+  margin: 0 !important; /* Control absoluto por .ats-page para prevenir desbordes o páginas huérfanas */
+}
+
+@media print {
+  html, body {
+    width: 215.9mm !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Ocultar de forma terminante toda la UI interactiva, botones, encabezados y formularios */
+  .no-print,
+  header,
+  footer,
+  aside,
+  nav,
+  form,
+  .ats-interactive-form,
+  .ats-preview-scroll-wrapper,
+  #ats-pdf-export-stage,
+  #ats-preview-document {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Blindar que ÚNICAMENTE el contenedor de impresión oficial (#ats-printable-document) sea visible */
+  .print-only-container,
+  #ats-printable-document {
+    display: block !important;
+    visibility: visible !important;
+    width: 215.9mm !important;
+    max-width: 215.9mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    position: static !important;
+  }
+
+  /* Cada página tiene dimensiones Letter con min-height y overflow visible para no cortar contenido */
+  .ats-page {
+    width: 215.9mm !important;
+    min-height: 279.4mm !important;
+    height: auto !important;
+    box-sizing: border-box !important;
+    padding: 8mm 10mm !important;
+    margin: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    overflow: visible !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* PÁGINA 1: Salto obligatorio exactamente al terminar */
+  .ats-page:first-of-type {
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  /* PÁGINA 2: Evitar terminantemente generar una 3ra página */
+  .ats-page:last-of-type {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  tr, .seccion-contenedor {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* El separador visual se neutraliza en print para no duplicar el salto */
+  .salto-pagina, .ats-page-break {
+    display: none !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+  }
+}
+
+/* ==========================================================================
+   CLASES TIPOGRÁFICAS Y DE TABLAS RÍGIDAS (BORDES SOLID 1px #2b2b2b)
+   ========================================================================== */
+
+.ats-document-root {
+  font-family: Arial, Helvetica, sans-serif;
+  color: #111827;
+  line-height: 1.15;
+  font-size: 7.4pt;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Contenedor de hoja en pantalla (Previsualización 1:1 Carta con min-height y sin recorte) */
+.ats-page-sheet {
+  width: 816px !important;
+  min-width: 816px !important;
+  max-width: 816px !important;
+  min-height: 1056px !important;
+  height: auto !important;
+  margin: 0 auto 24px auto;
+  background-color: #ffffff;
+  box-sizing: border-box !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.09);
+  border: 1px solid #d1d5db;
+  padding: 10px 28px 12px 28px !important; /* Reducido a ~8mm arriba y abajo para ganar espacio */
+  overflow: visible !important;
+  page-break-inside: avoid;
+  break-inside: avoid;
+  -webkit-text-size-adjust: 100% !important;
+  text-size-adjust: 100% !important;
+}
+
+/* Envoltorio responsivo para visualización móvil/tablet con scroll horizontal suave */
+.ats-preview-scroll-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 2rem;
+}
+
+.ats-preview-canvas {
+  width: 816px;
+  min-width: 816px;
+  max-width: 816px;
+  margin: 0 auto;
+}
+
+@media print {
+  .ats-page-sheet {
+    width: 215.9mm !important;
+    min-width: 215.9mm !important;
+    max-width: 215.9mm !important;
+    min-height: 279.4mm !important;
+    height: auto !important;
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 !important;
+    padding: 8mm 10mm !important;
+    overflow: visible !important;
+  }
+}
+
+/* ==========================================================================
+   TABLA DE LOS 10 PASOS DEL ATS - COMPACTACIÓN EXACTA SOLICITADA
+   ========================================================================== */
+.ats-matriz-table th,
+.ats-matriz-table td {
+  padding: 2px 4px !important;
+  font-size: 8.5px !important;
+  line-height: 1.15 !important;
+  box-sizing: border-box !important;
+  overflow: visible !important;
+}
+
+.ats-matriz-table .ats-section-banner {
+  padding: 2px 4px !important;
+  font-size: 8.5px !important;
+  line-height: 1.15 !important;
+}
+
+/* Tablas técnicas normalizadas con estructura rígida */
+.ats-table {
+  width: 100% !important;
+  max-width: 100% !important;
+  border-collapse: collapse !important;
+  table-layout: fixed !important;
+  margin-bottom: 2px !important;
+  background-color: #ffffff !important;
+  box-sizing: border-box !important;
+}
+
+.ats-table th,
+.ats-table td {
+  border: 1px solid #2b2b2b !important;
+  padding: 2.5px 4px !important;
+  font-size: 7.3pt !important;
+  line-height: 1.12 !important;
+  vertical-align: middle !important;
+  overflow-wrap: break-word !important;
+  word-wrap: break-word !important;
+  word-break: break-word !important;
+  hyphens: auto !important;
+  -webkit-hyphens: auto !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+}
+
+/* Sub-tablas o celdas anidadas con blindaje estricto */
+.ats-table table {
+  width: 100% !important;
+  max-width: 100% !important;
+  table-layout: fixed !important;
+  border-collapse: collapse !important;
+  box-sizing: border-box !important;
+}
+
+.ats-table table td,
+.ats-table table th {
+  overflow-wrap: break-word !important;
+  word-wrap: break-word !important;
+  word-break: break-word !important;
+  hyphens: auto !important;
+  -webkit-hyphens: auto !important;
+  line-height: 1.12 !important;
+  box-sizing: border-box !important;
+}
+
+/* Encabezados con fondo gris institucional #e9ecef */
+.ats-header-cell {
+  background-color: #e9ecef !important;
+  font-weight: bold !important;
+  text-align: center !important;
+  vertical-align: middle !important;
+  color: #111827 !important;
+}
+
+.ats-header-cell-left {
+  background-color: #e9ecef !important;
+  font-weight: bold !important;
+  text-align: left !important;
+  vertical-align: middle !important;
+  color: #111827 !important;
+}
+
+/* Banners divisores de sección integrados en tablas */
+.ats-section-banner {
+  background-color: #e9ecef !important;
+  border: 1px solid #2b2b2b !important;
+  font-weight: 800 !important;
+  text-align: center !important;
+  padding: 2.5px 5px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.3px !important;
+  font-size: 7.6pt !important;
+  color: #111827 !important;
+}
+
+/* Celdas de texto legal y declaraciones */
+.ats-declaration-cell {
+  background-color: #e9ecef !important;
+  border: 1px solid #2b2b2b !important;
+  padding: 2.5px 4px !important;
+  font-size: 6.6pt !important;
+  line-height: 1.13 !important;
+  text-align: justify !important;
+  color: #111827 !important;
+}
+
+/* Restricción estricta de imágenes de firmas */
+.ats-signature-box {
+  height: 32px !important;
+  max-height: 32px !important;
+  overflow: hidden !important;
+  text-align: center !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.ats-signature-img {
+  max-height: 30px !important;
+  max-width: 120px !important;
+  width: auto !important;
+  height: auto !important;
+  object-fit: contain !important;
+  display: block !important;
+  margin: 0 auto !important;
+}

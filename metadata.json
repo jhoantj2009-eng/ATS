@@ -1,0 +1,6 @@
+{
+  "name": "ATS Seguridad Laboral - Formato F-SST-045 con IA",
+  "description": "Aplicación de Análisis de Trabajo Seguro (ATS) con matriz de pasos generada por IA, firmas digitales táctiles, configuración institucional persistente y exportación a PDF oficial unificado.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 72" width="280" height="72">
+  <defs>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284c7" />
+      <stop offset="50%" stop-color="#0369a1" />
+      <stop offset="100%" stop-color="#0c4a6e" />
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="50%" stop-color="#fbbf24" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+    <linearGradient id="navyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#1e3a8a" />
+    </linearGradient>
+  </defs>
+
+  <!-- ESCUDO TÉCNICO INDUSTRIAL SST (Emblema Izquierdo) -->
+  <g transform="translate(4, 4)">
+    <!-- Base del Escudo -->
+    <path d="M 32,2 L 58,13 L 58,38 C 58,54 46,62 32,66 C 18,62 6,54 6,38 L 6,13 Z" fill="url(#shieldGrad)" />
+    <!-- Borde interior dorado de alta seguridad -->
+    <path d="M 32,6 L 53,16 L 53,37 C 53,50 43,58 32,62 C 21,58 11,50 11,37 L 11,16 Z" fill="none" stroke="url(#goldGrad)" stroke-width="2" />
+    <!-- Símbolo de Trabajo Seguro en Alturas / Cumbrera -->
+    <path d="M 32,15 L 45,37 L 38,37 L 32,27 L 26,37 L 19,37 Z" fill="#ffffff" />
+    <!-- Estrella de Seguridad Industrial / Certificación -->
+    <path d="M 32,34 L 35,43 L 44,46 L 35,49 L 32,58 L 29,49 L 20,46 L 29,43 Z" fill="url(#goldGrad)" />
+  </g>
+
+  <!-- MARCA CORPORATIVA DCM (Bloque Derecho) -->
+  <g transform="translate(74, 8)">
+    <!-- Letra D -->
+    <g transform="translate(0, 0)">
+      <path d="M 0,0 L 22,0 C 37,0 47,10 47,24 C 47,38 37,48 22,48 L 0,48 Z M 13,11 L 13,37 L 21,37 C 28,37 33,32 33,24 C 33,16 28,11 21,11 Z" fill="url(#navyGrad)" />
+    </g>
+
+    <!-- Letra C con Vértice Dorado -->
+    <g transform="translate(54, 0)">
+      <path d="M 40,11 C 36,4 28,0 20,0 C 9,0 0,9 0,24 C 0,39 9,48 20,48 C 29,48 37,43 41,36 L 30,31 C 28,34 25,37 20,37 C 14,37 12,32 12,24 C 12,16 15,11 20,11 C 25,11 28,13 30,18 Z" fill="url(#goldGrad)" />
+    </g>
+
+    <!-- Letra M con Estructura Técnica -->
+    <g transform="translate(104, 0)">
+      <path d="M 0,0 L 13,0 L 25,24 L 37,0 L 50,0 L 50,48 L 38,48 L 38,17 L 28,36 L 22,36 L 12,17 L 12,48 L 0,48 Z" fill="url(#shieldGrad)" />
+    </g>
+
+    <!-- Barra Divisoria Dorada Institucional -->
+    <rect x="0" y="52" width="160" height="2.5" rx="1.25" fill="url(#goldGrad)" />
+
+    <!-- Subtítulo Oficial -->
+    <text x="1" y="63" font-family="Arial, Helvetica, sans-serif" font-size="8" font-weight="bold" letter-spacing="1.8" fill="#475569">
+      INGENIERÍA &amp; SST · SEGURIDAD
+    </text>
+  </g>
+</svg>

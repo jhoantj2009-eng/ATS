@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 170" width="420" height="170">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,700;0,800;0,900;1,700;1,800&amp;display=swap');
+      .atom-orbit { fill: none; stroke: #181928; stroke-width: 3.2; stroke-linecap: round; }
+      .atom-dot { fill: #181928; }
+      .brand-title { font-family: 'Montserrat', Arial, Helvetica, sans-serif; font-size: 58px; font-weight: 900; fill: #181928; letter-spacing: -1.5px; }
+      .brand-sub1 { font-family: 'Montserrat', Arial, Helvetica, sans-serif; font-size: 13.5px; font-weight: 800; fill: #181928; letter-spacing: 0.8px; }
+      .brand-slogan { font-family: 'Montserrat', Arial, Helvetica, sans-serif; font-size: 16px; font-weight: 800; font-style: italic; fill: #181928; letter-spacing: -0.2px; }
+    </style>
+  </defs>
+
+  <!-- ATOM GRAPHIC (Left side) -->
+  <g transform="translate(58, 62)">
+    <!-- Orbit 1: Tilted left ~ -40deg -->
+    <ellipse cx="0" cy="0" rx="46" ry="19" class="atom-orbit" transform="rotate(-38)" />
+    <!-- Orbit 2: Tilted right ~ +40deg -->
+    <ellipse cx="0" cy="0" rx="46" ry="19" class="atom-orbit" transform="rotate(38)" />
+    <!-- Orbit 3: Almost vertical ~ 82deg -->
+    <ellipse cx="0" cy="0" rx="46" ry="19" class="atom-orbit" transform="rotate(82)" />
+    
+    <!-- Central Nucleus -->
+    <circle cx="0" cy="0" r="9.5" class="atom-dot" />
+    
+    <!-- Orbiting Electrons (Dots) -->
+    <!-- On Orbit 1 -->
+    <circle cx="-35" cy="-28" r="4.2" class="atom-dot" />
+    <circle cx="36" cy="27" r="4.2" class="atom-dot" />
+    <!-- On Orbit 2 -->
+    <circle cx="-34" cy="26" r="4.2" class="atom-dot" />
+    <circle cx="34" cy="-27" r="4.2" class="atom-dot" />
+    <!-- On Orbit 3 -->
+    <circle cx="4" cy="-44" r="4" class="atom-dot" />
+  </g>
+
+  <!-- TEXT BLOCK (Right side) -->
+  <!-- "inveasas" -->
+  <text x="122" y="80" class="brand-title">inveasas</text>
+  
+  <!-- "INVESTIGACIÓN ENERGÉTICA APLICADA S.A.S" -->
+  <text x="123" y="112" class="brand-sub1">INVESTIGACIÓN ENERGÉTICA APLICADA S.A.S</text>
+  
+  <!-- "¡Con nosotros la energía es tuya!" -->
+  <text x="123" y="142" class="brand-slogan">¡Con nosotros la energía es tuya!</text>
+</svg>

@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGradMask" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="50%" stop-color="#1e293b" />
+      <stop offset="100%" stop-color="#090d16" />
+    </linearGradient>
+    <linearGradient id="shieldGradMask" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284c7" />
+      <stop offset="50%" stop-color="#0369a1" />
+      <stop offset="100%" stop-color="#0c4a6e" />
+    </linearGradient>
+    <linearGradient id="goldGradMask" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="50%" stop-color="#fbbf24" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+  </defs>
+
+  <!-- Full bleed background for maskable icon -->
+  <rect width="512" height="512" fill="url(#bgGradMask)" />
+
+  <!-- Shield Emblem inside safe zone (central 75%) -->
+  <g transform="translate(156, 110) scale(3.125)">
+    <!-- Base del Escudo -->
+    <path d="M 32,2 L 58,13 L 58,38 C 58,54 46,62 32,66 C 18,62 6,54 6,38 L 6,13 Z" fill="url(#shieldGradMask)" />
+    <!-- Borde interior dorado -->
+    <path d="M 32,6 L 53,16 L 53,37 C 53,50 43,58 32,62 C 21,58 11,50 11,37 L 11,16 Z" fill="none" stroke="url(#goldGradMask)" stroke-width="2" />
+    <!-- Símbolo de Trabajo Seguro en Alturas -->
+    <path d="M 32,15 L 45,37 L 38,37 L 32,27 L 26,37 L 19,37 Z" fill="#ffffff" />
+    <!-- Estrella de Certificación SST -->
+    <path d="M 32,34 L 35,43 L 44,46 L 35,49 L 32,58 L 29,49 L 20,46 L 29,43 Z" fill="url(#goldGradMask)" />
+  </g>
+
+  <!-- Banner text ATS inside safe zone -->
+  <text x="256" y="385" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="38" font-weight="900" letter-spacing="5" fill="#f8fafc">
+    ATS DCM
+  </text>
+  <text x="256" y="415" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="bold" letter-spacing="3" fill="url(#goldGradMask)">
+    SEGURIDAD INDUSTRIAL
+  </text>
+</svg>
