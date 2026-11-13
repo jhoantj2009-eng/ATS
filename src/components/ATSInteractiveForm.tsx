@@ -1258,25 +1258,13 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
       {/* SECTION 3: EPP & CAIDAS */}
       {activeSection === "epp" && (
         <div className="bg-white rounded-2xl border-2 border-slate-200 p-5 sm:p-6 shadow-xs space-y-6">
-          <div className="pb-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <h3 className="text-base sm:text-lg font-extrabold text-slate-900 uppercase tracking-wide">
-                Elementos de Protección Personal (EPP) y Sistemas contra Caídas
-              </h3>
-              <p className="text-xs sm:text-sm text-slate-600 font-medium">
-                Marque con 'X' los elementos de dotación obligatorios para los trabajadores durante la labor
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs sm:text-sm font-bold bg-slate-100 text-slate-800 border border-slate-300 shadow-2xs">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                <span>
-                  {Object.values(formData.eppsSeleccionados || {}).filter(Boolean).length +
-                    (formData.otrosEppsPersonalizados || []).filter((c) => c.seleccionado).length}{" "}
-                  elementos marcados
-                </span>
-              </span>
-            </div>
+          <div className="pb-4 border-b border-slate-100">
+            <h3 className="text-base sm:text-lg font-extrabold text-slate-900 uppercase tracking-wide">
+              Elementos de Protección Personal (EPP) y Sistemas contra Caídas
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-600 font-medium">
+              Marque con 'X' los elementos de dotación obligatorios para los trabajadores durante la labor
+            </p>
           </div>
 
           {/* CUADRICULA DE ELEMENTOS EPP REGLAMENTARIOS */}
@@ -1374,7 +1362,6 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                 disabled={!newCustomEppName.trim()}
                 className="inline-flex items-center justify-center gap-2 min-h-[48px] h-12 px-6 rounded-xl font-extrabold text-sm sm:text-base bg-slate-900 hover:bg-slate-800 text-white border-2 border-slate-900 shadow-sm transition-all disabled:opacity-40 cursor-pointer active:scale-98 shrink-0"
               >
-                <Plus className="w-4 h-4 text-amber-400" />
                 <span>+ Agregar Elemento</span>
               </button>
             </form>
@@ -1557,46 +1544,6 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
               </div>
             )}
 
-            {/* VISTA PREVIA DEL TEXTO UNIFICADO PARA EL PDF */}
-            <div className="p-3.5 bg-slate-100 rounded-xl border-2 border-slate-300 text-xs sm:text-sm text-slate-800 flex items-start gap-2.5">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <span className="font-extrabold text-slate-900 block uppercase text-xs">
-                  Reflejo Oficial en Formato PDF (Fila "OTRO(S):"):
-                </span>
-                <span className="font-semibold text-slate-700 italic break-words">
-                  {[
-                    ...(formData.otrosEppsPersonalizados || [])
-                      .filter((c) => c.seleccionado)
-                      .map((c) => c.nombre.trim())
-                      .filter(Boolean),
-                    ...(formData.otroEppTexto ? [formData.otroEppTexto.trim()] : []),
-                  ].join(", ") || "Ningún elemento adicional marcado actualmente."}
-                </span>
-              </div>
-            </div>
-
-            {/* ESPECIFICACIONES O NOTAS ADICIONALES */}
-            <div className="space-y-1.5 pt-1">
-              <label className="block text-xs sm:text-sm font-bold text-slate-800">
-                Observaciones o especificaciones adicionales para los Otros EPP:
-              </label>
-              <input
-                type="text"
-                value={formData.otroEppTexto}
-                onChange={(e) => {
-                  updateField("otroEppTexto", e.target.value);
-                  if (e.target.value.trim()) {
-                    updateField("eppsSeleccionados", {
-                      ...formData.eppsSeleccionados,
-                      epp_otro: true,
-                    });
-                  }
-                }}
-                placeholder="Notas adicionales (Ej: Calibre dieléctrico clase 2, filtros tipo P100, arnés con 4 argollas...)"
-                className="w-full min-h-[48px] text-base px-4 py-2.5 rounded-xl border-2 border-slate-300 bg-white font-medium text-slate-900 focus:border-slate-900 focus:outline-none"
-              />
-            </div>
           </div>
         </div>
       )}

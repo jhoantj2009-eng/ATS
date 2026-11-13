@@ -448,33 +448,19 @@ export const ATSPrintFormat: React.FC<ATSPrintFormatProps> = ({
                 <td className="ats-header-cell-left align-top" style={{ padding: "1.5px 3px", overflowWrap: "break-word", wordBreak: "break-word", hyphens: "auto", lineHeight: 1.12 }}>
                   DESCRIPCIÓN Y PROCEDIMIENTO DE LA TAREA:
                 </td>
-                <td className="align-top leading-snug" style={{ padding: "1.5px 3px", overflowWrap: "break-word", wordBreak: "break-word", hyphens: "auto" }}>
+                <td className="align-middle leading-snug" style={{ padding: "2.5px 4px", overflowWrap: "break-word", wordBreak: "break-word", hyphens: "auto" }}>
                   <div
                     className="font-bold text-[#111827]"
                     style={{
                       fontSize: (formData.tareaGeneral || "").length > 150 ? "6.8pt" : "7.2pt",
-                      lineHeight: 1.12,
+                      lineHeight: 1.15,
                       overflowWrap: "break-word",
                       wordBreak: "break-word",
                       hyphens: "auto",
                     }}
                   >
-                    {formData.tareaGeneral || "Mantenimiento preventivo e instalación en alturas"}
+                    {formData.tareaGeneral}
                   </div>
-                  {formData.detalleLabor && (
-                    <div
-                      className="text-[#374151] mt-0.5"
-                      style={{
-                        fontSize: (formData.detalleLabor || "").length > 200 ? "6.2pt" : "6.8pt",
-                        lineHeight: 1.10,
-                        overflowWrap: "break-word",
-                        wordBreak: "break-word",
-                        hyphens: "auto",
-                      }}
-                    >
-                      <strong>Detalle operativo:</strong> {formData.detalleLabor}
-                    </div>
-                  )}
                 </td>
               </tr>
             </tbody>

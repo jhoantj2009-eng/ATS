@@ -807,8 +807,8 @@ async function startServer() {
     const isHmrDisabled = process.env.DISABLE_HMR === "true";
 
     if (isHmrDisabled) {
-      // Prevent @vite/client from opening a doomed WebSocket to port 24678 when HMR is disabled
-      app.get("/@vite/client", (_req, res) => {
+      // Prevent @vite/client from opening a doomed WebSocket to port 24678 when HMR is disabled (works for any base path)
+      app.get(/\/@vite\/client$/, (_req, res) => {
         res.type("application/javascript").send(`
 const sheetsMap = new Map();
 if ("document" in globalThis) {
