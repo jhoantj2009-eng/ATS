@@ -6,7 +6,7 @@ import path from 'path'
 
 export default defineConfig(() => {
   return {
-    base: '/ATS-/',
+    base: '/ATS/',
     plugins: [
       react(),
       tailwindcss(),
