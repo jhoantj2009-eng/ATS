@@ -49,7 +49,7 @@ import {
 
 interface ATSInteractiveFormProps {
   formData: ATSFormData;
-  onChangeFormData: (updated: ATSFormData) => void;
+  onChangeFormData: React.Dispatch<React.SetStateAction<ATSFormData>>;
   empresa: EmpresaConfig;
   staffList: PersonalMember[];
   onOpenStaffModal: () => void;
@@ -87,13 +87,32 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
   onUpdateEmpresa,
 }) => {
   const [activeSection, setActiveSection] = useState<"cabecera" | "matriz" | "epp" | "area" | "firmas">("cabecera");
-  const [quickTaskInput, setQuickTaskInput] = useState(formData.tareaGeneral || "");
-  const [lastGeneratedName, setLastGeneratedName] = useState<string | null>(formData.tareaGeneral || null);
   const [isOptimizingLogo, setIsOptimizingLogo] = useState(false);
   const [logoSaveNotice, setLogoSaveNotice] = useState<string | null>(null);
   const [newCustomEppName, setNewCustomEppName] = useState("");
   const [editingCustomId, setEditingCustomId] = useState<string | null>(null);
   const [editingCustomText, setEditingCustomText] = useState("");
+
+  const MANUAL_EDITS_KEY = "ats_manual_edited_fields";
+  const getManualEditedFlags = (atsId: string): { altura?: boolean; tipo?: boolean } => {
+    try {
+      const raw = localStorage.getItem(MANUAL_EDITS_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && parsed.id === atsId ? parsed : {};
+    } catch {
+      return {};
+    }
+  };
+  const setManualEditedFlag = (atsId: string, field: "altura" | "tipo", value: boolean) => {
+    try {
+      const current = getManualEditedFlags(atsId);
+      localStorage.setItem(
+        MANUAL_EDITS_KEY,
+        JSON.stringify({ ...current, id: atsId, [field]: value })
+      );
+    } catch {}
+  };
 
   const handleQuickLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -125,124 +144,136 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
   };
 
   const updateField = <K extends keyof ATSFormData>(field: K, value: ATSFormData[K]) => {
-    onChangeFormData({ ...formData, [field]: value });
+    onChangeFormData((prev) => ({ ...prev, [field]: value }));
   };
 
   const handlePasoChange = (index: number, key: keyof ATSPaso, value: any) => {
-    const updatedPasos = [...formData.pasos];
-    updatedPasos[index] = { ...updatedPasos[index], [key]: value };
-    updateField("pasos", updatedPasos);
+    onChangeFormData((prev) => {
+      const updatedPasos = [...prev.pasos];
+      updatedPasos[index] = { ...updatedPasos[index], [key]: value };
+      return { ...prev, pasos: updatedPasos };
+    });
   };
 
   const handleAddPaso = () => {
-    const nextNum = formData.pasos.length + 1;
-    const newPaso: ATSPaso = {
-      id: `p-${Date.now()}`,
-      numero: nextNum,
-      paso: "",
-      riesgo: "",
-      controles: "",
-      responsable: formData.trabajadores[0]?.nombre || "Técnico Ejecutor",
-    };
-    updateField("pasos", [...formData.pasos, newPaso]);
+    onChangeFormData((prev) => {
+      const nextNum = prev.pasos.length + 1;
+      const newPaso: ATSPaso = {
+        id: `p-${Date.now()}`,
+        numero: nextNum,
+        paso: "",
+        riesgo: "",
+        controles: "",
+        responsable: prev.trabajadores[0]?.nombre || "Técnico Ejecutor",
+      };
+      return { ...prev, pasos: [...prev.pasos, newPaso] };
+    });
   };
 
   const handleRemovePaso = (index: number) => {
-    if (formData.pasos.length <= 1) {
-      return;
-    }
-    const updated = formData.pasos.filter((_, idx) => idx !== index);
-    // Renumber
-    const renumbered = updated.map((p, idx) => ({ ...p, numero: idx + 1 }));
-    updateField("pasos", renumbered);
+    onChangeFormData((prev) => {
+      if (prev.pasos.length <= 1) {
+        return prev;
+      }
+      const updated = prev.pasos.filter((_, idx) => idx !== index);
+      const renumbered = updated.map((p, idx) => ({ ...p, numero: idx + 1 }));
+      return { ...prev, pasos: renumbered };
+    });
   };
 
   const toggleEpp = (eppId: string) => {
-    const nextVal = !formData.eppsSeleccionados[eppId];
-    let updatedCustom = formData.otrosEppsPersonalizados;
-    if (eppId === "epp_otro" && formData.otrosEppsPersonalizados && formData.otrosEppsPersonalizados.length > 0) {
-      updatedCustom = formData.otrosEppsPersonalizados.map((c) => ({
-        ...c,
-        seleccionado: nextVal,
-      }));
-    }
-    onChangeFormData({
-      ...formData,
-      eppsSeleccionados: {
-        ...formData.eppsSeleccionados,
-        [eppId]: nextVal,
-      },
-      ...(updatedCustom !== undefined ? { otrosEppsPersonalizados: updatedCustom } : {}),
+    onChangeFormData((prev) => {
+      const nextVal = !prev.eppsSeleccionados[eppId];
+      let updatedCustom = prev.otrosEppsPersonalizados;
+      if (eppId === "epp_otro" && prev.otrosEppsPersonalizados && prev.otrosEppsPersonalizados.length > 0) {
+        updatedCustom = prev.otrosEppsPersonalizados.map((c) => ({
+          ...c,
+          seleccionado: nextVal,
+        }));
+      }
+      return {
+        ...prev,
+        eppsSeleccionados: {
+          ...prev.eppsSeleccionados,
+          [eppId]: nextVal,
+        },
+        ...(updatedCustom !== undefined ? { otrosEppsPersonalizados: updatedCustom } : {}),
+      };
     });
   };
 
   const handleAddCustomEpp = (nameToAdd?: string) => {
     const rawName = (nameToAdd || newCustomEppName).trim();
     if (!rawName) return;
-
-    const currentList: CustomEPPItem[] = formData.otrosEppsPersonalizados || [];
     const formattedName = rawName.toUpperCase();
 
-    const existingIndex = currentList.findIndex(
-      (c) => c.nombre.toUpperCase() === formattedName
-    );
-
-    let updatedList: CustomEPPItem[];
-    if (existingIndex >= 0) {
-      updatedList = currentList.map((c, idx) =>
-        idx === existingIndex ? { ...c, seleccionado: true } : c
+    onChangeFormData((prev) => {
+      const currentList: CustomEPPItem[] = prev.otrosEppsPersonalizados || [];
+      const existingIndex = currentList.findIndex(
+        (c) => c.nombre.toUpperCase() === formattedName
       );
-    } else {
-      const newItem: CustomEPPItem = {
-        id: `custom_epp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        nombre: formattedName,
-        seleccionado: true,
-      };
-      updatedList = [...currentList, newItem];
-    }
 
-    onChangeFormData({
-      ...formData,
-      otrosEppsPersonalizados: updatedList,
-      eppsSeleccionados: {
-        ...formData.eppsSeleccionados,
-        epp_otro: true,
-      },
+      let updatedList: CustomEPPItem[];
+      if (existingIndex >= 0) {
+        updatedList = currentList.map((c, idx) =>
+          idx === existingIndex ? { ...c, seleccionado: true } : c
+        );
+      } else {
+        const newItem: CustomEPPItem = {
+          id: `custom_epp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          nombre: formattedName,
+          seleccionado: true,
+        };
+        updatedList = [...currentList, newItem];
+      }
+
+      return {
+        ...prev,
+        otrosEppsPersonalizados: updatedList,
+        eppsSeleccionados: {
+          ...prev.eppsSeleccionados,
+          epp_otro: true,
+        },
+      };
     });
     setNewCustomEppName("");
   };
 
   const handleToggleCustomEpp = (id: string) => {
-    const currentList: CustomEPPItem[] = formData.otrosEppsPersonalizados || [];
-    const updatedList = currentList.map((c) =>
-      c.id === id ? { ...c, seleccionado: !c.seleccionado } : c
-    );
-    const hasAnyActive =
-      updatedList.some((c) => c.seleccionado) || Boolean(formData.otroEppTexto?.trim());
+    onChangeFormData((prev) => {
+      const currentList: CustomEPPItem[] = prev.otrosEppsPersonalizados || [];
+      const updatedList = currentList.map((c) =>
+        c.id === id ? { ...c, seleccionado: !c.seleccionado } : c
+      );
+      const hasAnyActive =
+        updatedList.some((c) => c.seleccionado) || Boolean(prev.otroEppTexto?.trim());
 
-    onChangeFormData({
-      ...formData,
-      otrosEppsPersonalizados: updatedList,
-      eppsSeleccionados: {
-        ...formData.eppsSeleccionados,
-        epp_otro: hasAnyActive,
-      },
+      return {
+        ...prev,
+        otrosEppsPersonalizados: updatedList,
+        eppsSeleccionados: {
+          ...prev.eppsSeleccionados,
+          epp_otro: hasAnyActive,
+        },
+      };
     });
   };
 
   const handleRemoveCustomEpp = (id: string) => {
-    const currentList: CustomEPPItem[] = formData.otrosEppsPersonalizados || [];
-    const updatedList = currentList.filter((c) => c.id !== id);
-    const hasAnyActive =
-      updatedList.some((c) => c.seleccionado) || Boolean(formData.otroEppTexto?.trim());
+    onChangeFormData((prev) => {
+      const currentList: CustomEPPItem[] = prev.otrosEppsPersonalizados || [];
+      const updatedList = currentList.filter((c) => c.id !== id);
+      const hasAnyActive =
+        updatedList.some((c) => c.seleccionado) || Boolean(prev.otroEppTexto?.trim());
 
-    onChangeFormData({
-      ...formData,
-      otrosEppsPersonalizados: updatedList,
-      eppsSeleccionados: {
-        ...formData.eppsSeleccionados,
-        epp_otro: hasAnyActive,
-      },
+      return {
+        ...prev,
+        otrosEppsPersonalizados: updatedList,
+        eppsSeleccionados: {
+          ...prev.eppsSeleccionados,
+          epp_otro: hasAnyActive,
+        },
+      };
     });
     if (editingCustomId === id) {
       setEditingCustomId(null);
@@ -261,48 +292,74 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
       handleRemoveCustomEpp(id);
       return;
     }
-    const currentList: CustomEPPItem[] = formData.otrosEppsPersonalizados || [];
-    const updatedList = currentList.map((c) =>
-      c.id === id ? { ...c, nombre: trimmed } : c
-    );
-    updateField("otrosEppsPersonalizados", updatedList);
+    onChangeFormData((prev) => {
+      const currentList: CustomEPPItem[] = prev.otrosEppsPersonalizados || [];
+      const updatedList = currentList.map((c) =>
+        c.id === id ? { ...c, nombre: trimmed } : c
+      );
+      return { ...prev, otrosEppsPersonalizados: updatedList };
+    });
     setEditingCustomId(null);
     setEditingCustomText("");
   };
 
   const handleAreaCheck = (id: number, estado: "SI" | "NO" | "N.A.") => {
-    const updated = formData.preparacionArea.map((item) =>
-      item.id === id ? { ...item, estado } : item
-    );
-    updateField("preparacionArea", updated);
+    onChangeFormData((prev) => ({
+      ...prev,
+      preparacionArea: prev.preparacionArea.map((item) =>
+        item.id === id ? { ...item, estado } : item
+      ),
+    }));
   };
 
-  // Immediate specific task generator
+  // Immediate specific task generator (preserves manual altura / tipoTrabajo entered by user)
   const triggerSpecificTaskAI = (
     taskText: string,
     heightText?: string,
     detailText?: string,
-    typeText?: string
+    typeText?: string,
+    forceDeduce = false
   ) => {
     const targetTask = taskText.trim();
     if (!targetTask) {
       return;
     }
 
-    setQuickTaskInput(targetTask);
-    setLastGeneratedName(targetTask);
+    const manualFlags = getManualEditedFlags(formData.id);
+    const currentAltura = (formData.alturaAproximada || "").trim();
+    const currentTipo = (formData.tipoTrabajo || "").trim();
 
-    // No arrastrar restricciones viejas del ATS anterior: la IA deducirá tipoTrabajo, altura y detalle desde cero
-    const updated = {
-      ...formData,
+    const shouldPreserveAltura =
+      !forceDeduce &&
+      heightText === undefined &&
+      Boolean(currentAltura) &&
+      (Boolean(manualFlags.altura) || currentAltura !== "12 MTS");
+
+    const shouldPreserveTipo =
+      !forceDeduce &&
+      typeText === undefined &&
+      Boolean(currentTipo) &&
+      (Boolean(manualFlags.tipo) || currentTipo !== "Trabajo en Alturas / Mantenimiento Eléctrico");
+
+    const effectiveHeight =
+      heightText !== undefined ? heightText : shouldPreserveAltura ? currentAltura : undefined;
+    const effectiveType =
+      typeText !== undefined ? typeText : shouldPreserveTipo ? currentTipo : undefined;
+
+    if (forceDeduce) {
+      setManualEditedFlag(formData.id, "altura", false);
+      setManualEditedFlag(formData.id, "tipo", false);
+    }
+
+    onChangeFormData((prev) => ({
+      ...prev,
       tareaGeneral: targetTask,
-      alturaAproximada: heightText !== undefined ? heightText : "",
-      detalleLabor: detailText !== undefined ? detailText : "",
-      tipoTrabajo: typeText !== undefined ? typeText : "",
-    };
-    onChangeFormData(updated);
+      ...(heightText !== undefined ? { alturaAproximada: heightText } : {}),
+      ...(detailText !== undefined ? { detalleLabor: detailText } : {}),
+      ...(typeText !== undefined ? { tipoTrabajo: typeText } : {}),
+    }));
 
-    onGenerateWithAI(targetTask, heightText, detailText, typeText);
+    onGenerateWithAI(targetTask, effectiveHeight, detailText, effectiveType);
     // Move to the 10-step matrix view so the user immediately sees the generated steps!
     setActiveSection("matriz");
   };
@@ -554,8 +611,11 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
               </label>
               <input
                 type="text"
-                value={formData.tipoTrabajo}
-                onChange={(e) => updateField("tipoTrabajo", e.target.value)}
+                value={formData.tipoTrabajo ?? ""}
+                onChange={(e) => {
+                  setManualEditedFlag(formData.id, "tipo", true);
+                  updateField("tipoTrabajo", e.target.value);
+                }}
                 placeholder="Ej. Trabajo en Alturas / Mantenimiento Eléctrico"
                 className="w-full min-h-[48px] h-12 text-base px-4 py-2.5 rounded-xl border-2 border-slate-300 bg-white font-bold text-slate-900 focus:border-slate-900 focus:ring-2 focus:ring-slate-900/15 focus:outline-none"
               />
@@ -573,8 +633,11 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
               </label>
               <input
                 type="text"
-                value={formData.alturaAproximada}
-                onChange={(e) => updateField("alturaAproximada", e.target.value)}
+                value={formData.alturaAproximada ?? ""}
+                onChange={(e) => {
+                  setManualEditedFlag(formData.id, "altura", true);
+                  updateField("alturaAproximada", e.target.value);
+                }}
                 placeholder="Ej. 12 MTS (o 'N/A - Nivel de piso')"
                 className="w-full min-h-[48px] h-12 text-base px-4 py-2.5 rounded-xl border-2 border-slate-300 bg-white font-extrabold text-slate-900 focus:border-slate-900 focus:ring-2 focus:ring-slate-900/15 focus:outline-none"
               />
@@ -599,15 +662,12 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
             <div className="flex flex-col sm:flex-row gap-2.5">
               <input
                 type="text"
-                value={formData.tareaGeneral}
-                onChange={(e) => {
-                  updateField("tareaGeneral", e.target.value);
-                  setQuickTaskInput(e.target.value);
-                }}
+                value={formData.tareaGeneral ?? ""}
+                onChange={(e) => updateField("tareaGeneral", e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
-                    triggerSpecificTaskAI(formData.tareaGeneral);
+                    triggerSpecificTaskAI(e.currentTarget.value);
                   }
                 }}
                 placeholder="Ej. Mantenimiento e instalación de luminarias y reflectores en fachada a 12 metros de altura"
@@ -616,7 +676,7 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
               <button
                 type="button"
                 onClick={() => triggerSpecificTaskAI(formData.tareaGeneral)}
-                disabled={isGeneratingAI || !formData.tareaGeneral.trim()}
+                disabled={isGeneratingAI || !(formData.tareaGeneral || "").trim()}
                 className="inline-flex items-center justify-center gap-2 px-5 min-h-[48px] h-12 rounded-xl font-bold text-sm sm:text-base bg-slate-900 hover:bg-slate-800 text-white border border-slate-900 shadow-sm transition-all shrink-0 disabled:opacity-50 cursor-pointer active:scale-98"
                 title="Generar la matriz de 10 pasos en tiempo récord con IA"
               >
@@ -644,7 +704,7 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                 <button
                   key={pIdx}
                   type="button"
-                  onClick={() => triggerSpecificTaskAI(preset.task)}
+                  onClick={() => triggerSpecificTaskAI(preset.task, undefined, undefined, undefined, true)}
                   className="text-xs font-semibold bg-white hover:bg-slate-100 border-2 border-slate-300 hover:border-slate-800 text-slate-800 px-3 py-1 rounded-lg transition-all cursor-pointer shadow-2xs"
                 >
                   {preset.label}
@@ -1636,6 +1696,10 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {formData.trabajadores.map((worker) => {
                 const firma = formData.firmasTrabajadores[worker.id];
+                const savedStaffSig =
+                  worker.firmaUrl ||
+                  staffList.find((s) => s.id === worker.id || s.cedula === worker.cedula)?.firmaUrl;
+
                 return (
                   <div
                     key={worker.id}
@@ -1662,7 +1726,7 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                       )}
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <button
                         type="button"
                         onClick={() =>
@@ -1681,6 +1745,23 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                         <PenTool className="w-4 h-4" />
                         <span>{firma ? "Cambiar Firma" : "Firmar en Pantalla"}</span>
                       </button>
+
+                      {!firma && savedStaffSig && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateField("firmasTrabajadores", {
+                              ...formData.firmasTrabajadores,
+                              [worker.id]: savedStaffSig,
+                            })
+                          }
+                          className="min-h-[48px] inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 text-xs sm:text-sm font-extrabold text-slate-900 bg-amber-400 hover:bg-amber-300 border border-amber-500 rounded-xl transition-colors cursor-pointer shrink-0"
+                          title="Cargar la firma guardada en Gestión de Personal"
+                        >
+                          <Check className="w-4 h-4" />
+                          <span>Usar firma guardada</span>
+                        </button>
+                      )}
 
                       {firma && (
                         <button
@@ -1788,6 +1869,7 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                             nombre: st.nombre,
                             cedula: st.cedula,
                             cargo: st.cargo.includes("SST") ? st.cargo : `Coordinador SST / ${st.cargo}`,
+                            firmaUrl: st.firmaUrl || formData.supervisor.firmaUrl,
                           })
                         }
                         className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 transition-colors text-xs font-semibold"
@@ -1874,14 +1956,14 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+        <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-2.5 w-full sm:w-auto justify-end">
           {onViewPDF && (
             <button
               type="button"
               onClick={onViewPDF}
-              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 min-h-[48px] text-sm font-bold text-slate-900 bg-white hover:bg-slate-100 border-2 border-slate-300 px-4 py-2.5 rounded-xl transition-colors cursor-pointer"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 min-h-[48px] text-sm font-bold text-slate-900 bg-white hover:bg-slate-100 border-2 border-slate-300 px-4 py-2.5 rounded-xl transition-colors cursor-pointer"
             >
-              <Eye className="w-4 h-4" />
+              <Eye className="w-4 h-4 shrink-0" />
               <span>Ver Formato PDF (1:1)</span>
             </button>
           )}
@@ -1889,10 +1971,10 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
             <button
               type="button"
               onClick={onEmailPDF}
-              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 min-h-[48px] text-sm font-bold text-slate-900 bg-slate-100 hover:bg-slate-200 border-2 border-slate-300 px-4 py-2.5 rounded-xl transition-colors cursor-pointer"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 min-h-[48px] text-sm font-bold text-slate-900 bg-slate-100 hover:bg-slate-200 border-2 border-slate-300 px-4 py-2.5 rounded-xl transition-colors cursor-pointer"
               title="Enviar el PDF oficial por correo electrónico"
             >
-              <Mail className="w-4 h-4 text-slate-700" />
+              <Mail className="w-4 h-4 text-slate-700 shrink-0" />
               <span>Enviar al Correo</span>
             </button>
           )}
@@ -1901,9 +1983,9 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
               type="button"
               onClick={onExportPDF}
               disabled={isExportingPDF}
-              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 min-h-[48px] text-sm font-extrabold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-60 px-5 py-2.5 rounded-xl shadow-xs transition-colors cursor-pointer"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 min-h-[48px] text-sm font-extrabold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-60 px-5 py-2.5 rounded-xl shadow-xs transition-colors cursor-pointer"
             >
-              <FileDown className="w-4 h-4" />
+              <FileDown className="w-4 h-4 shrink-0" />
               <span>{isExportingPDF ? "Generando PDF..." : "Descargar en PDF"}</span>
             </button>
           )}
@@ -1911,7 +1993,7 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
       </div>
 
       {/* BARRA DE NAVEGACIÓN FIJA INFERIOR (ANTERIOR / SIGUIENTE) */}
-      <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t-2 border-slate-300 px-3 sm:px-6 py-2.5 sm:py-3 shadow-lg">
+      <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t-2 border-slate-300 px-3 sm:px-6 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] sm:py-3 shadow-lg">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-2.5">
           <button
             type="button"

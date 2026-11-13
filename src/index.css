@@ -5,6 +5,8 @@
     font-family: Arial, Helvetica, 'Plus Jakarta Sans', system-ui, sans-serif;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
   }
 }
 
@@ -142,12 +144,32 @@
   text-size-adjust: 100% !important;
 }
 
-/* Envoltorio responsivo para visualización móvil/tablet con scroll horizontal suave */
+/* Envoltorio responsivo para visualización en iPhone, tablet y escritorio */
 .ats-preview-scroll-wrapper {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
+  overflow-y: visible;
   -webkit-overflow-scrolling: touch;
   padding-bottom: 2rem;
+  box-sizing: border-box;
+}
+
+.ats-preview-fit-wrapper {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  padding-bottom: 1.5rem;
+  box-sizing: border-box;
+}
+
+.ats-preview-scale-box {
+  position: relative;
+  width: 100%;
+  margin: 0 auto;
+  overflow: hidden;
 }
 
 .ats-preview-canvas {
@@ -155,6 +177,46 @@
   min-width: 816px;
   max-width: 816px;
   margin: 0 auto;
+  transform-origin: top left;
+}
+
+.ats-preview-canvas--scaled {
+  position: absolute;
+  top: 0;
+  left: 0;
+  margin: 0;
+}
+
+/* Stage oculto dedicado para captura PDF sin provocar desbordamiento en iPhone */
+.ats-pdf-export-stage {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: -9999;
+  opacity: 0;
+}
+
+.ats-export-page-box {
+  width: 816px;
+  min-width: 816px;
+  max-width: 816px;
+  min-height: 1056px;
+  height: auto;
+  background-color: #ffffff;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Ajuste responsivo automático en pantallas angostas (iPhone) si no está escalado por JS */
+@media (max-width: 850px) {
+  .ats-preview-scroll-wrapper .ats-page-sheet {
+    margin-bottom: 16px;
+  }
 }
 
 @media print {

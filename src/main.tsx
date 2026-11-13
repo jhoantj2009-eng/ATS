@@ -6,6 +6,7 @@ import "./index.css";
 
 // Registrar Service Worker con recarga automática para soporte offline instantáneo
 const updateSW = registerSW({
+  immediate: true,
   onNeedRefresh() {
     // Actualizar Service Worker inmediatamente en segundo plano
     updateSW(true);

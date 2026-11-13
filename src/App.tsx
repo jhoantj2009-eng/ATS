@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   ATSFormData,
   ATSHistoryRecord,
@@ -26,12 +26,16 @@ import { AppSheetGuideModal } from "./components/AppSheetGuideModal";
 import { AccessGuard, useAuth } from "./components/AccessGuard";
 import { EmailModal } from "./components/EmailModal";
 import { ATSHistoryModal } from "./components/ATSHistoryModal";
-import { PWAInstallButton } from "./components/PWAInstallButton";
+import {
+  PWAInstallButton,
+  PWAInstallModal,
+  PWAInstallFloatingPrompt,
+} from "./components/PWAInstallButton";
 import { getHistoryRecords, saveHistoryRecord } from "./utils/historyStorage";
 import { exportToPDF, printDirect } from "./utils/pdfExport";
 import { useNetworkSync } from "./hooks/useNetworkSync";
 import { generateOfflineATS } from "./utils/offlineGenerator";
-import { saveAppSettingsToIDB } from "./utils/indexedDB";
+import { saveAppSettingsToIDB, getAppSettingsFromIDB } from "./utils/indexedDB";
 import {
   FileDown,
   Printer,
@@ -67,11 +71,25 @@ import {
 } from "lucide-react";
 
 function ATSAppContent() {
-  // Local storage loaded states with fallbacks
+  // Local storage loaded states with fallbacks and safe merge
   const [formData, setFormData] = useState<ATSFormData>(() => {
     try {
       const saved = localStorage.getItem("ats_form_data");
-      return saved ? JSON.parse(saved) : INITIAL_FORM_DATA;
+      if (!saved) return INITIAL_FORM_DATA;
+      const parsed = JSON.parse(saved);
+      if (!parsed || typeof parsed !== "object") return INITIAL_FORM_DATA;
+      return {
+        ...INITIAL_FORM_DATA,
+        ...parsed,
+        supervisor: {
+          ...INITIAL_FORM_DATA.supervisor,
+          ...(parsed.supervisor || {}),
+        },
+        eppsSeleccionados: {
+          ...INITIAL_FORM_DATA.eppsSeleccionados,
+          ...(parsed.eppsSeleccionados || {}),
+        },
+      };
     } catch {
       return INITIAL_FORM_DATA;
     }
@@ -145,6 +163,7 @@ function ATSAppContent() {
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [isPWAModalOpen, setIsPWAModalOpen] = useState(false);
   const [historyCount, setHistoryCount] = useState<number>(() => {
     try {
       return getHistoryRecords().length;
@@ -168,6 +187,13 @@ function ATSAppContent() {
   // Responsive mobile top navigation menu state
   const [isNavMenuOpen, setIsNavMenuOpen] = useState(false);
 
+  // Responsive PDF Preview scaling for iPhone / mobile screens
+  const [previewZoomMode, setPreviewZoomMode] = useState<"fit" | "actual">("fit");
+  const [previewScale, setPreviewScale] = useState<number>(1);
+  const [previewScaledHeight, setPreviewScaledHeight] = useState<number | null>(null);
+  const previewViewportRef = useRef<HTMLDivElement | null>(null);
+  const previewCanvasRef = useRef<HTMLDivElement | null>(null);
+
   // PWA Network Sync & Offline State
   const { isOnline, pendingCount, isSyncing, syncNow, refreshPendingCount } = useNetworkSync();
 
@@ -183,69 +209,237 @@ function ATSAppContent() {
     }
   });
 
-  // Real-time Auto-Save to localStorage and IndexedDB on every change with subtle debounce
+  const latestStateRef = useRef({ formData, empresa, staffList });
+  latestStateRef.current = { formData, empresa, staffList };
+  const hasUserEditedFormRef = useRef(false);
+
+  const persistFormDataImmediately = useCallback((nextData: ATSFormData) => {
+    const updatedAtMs = Date.now();
+    try {
+      localStorage.setItem("ats_form_data", JSON.stringify(nextData));
+      localStorage.setItem("ats_form_data_updated_at", String(updatedAtMs));
+      const nowFormatted = new Date(updatedAtMs).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+      localStorage.setItem("ats_last_saved_time", nowFormatted);
+      setLastSavedTime(nowFormatted);
+      setSaveStatus("saved");
+    } catch (err) {
+      console.error("Error guardando ats_form_data en localStorage:", err);
+      setSaveStatus("error");
+    }
+
+    saveAppSettingsToIDB("ats_draft_backup", {
+      formData: nextData,
+      empresa: latestStateRef.current.empresa,
+      staffList: latestStateRef.current.staffList,
+      updatedAt: new Date(updatedAtMs).toISOString(),
+      updatedAtMs,
+    }).catch((err) => console.warn("IDB draft backup warn:", err));
+  }, []);
+
+  const handleFormDataChange: React.Dispatch<React.SetStateAction<ATSFormData>> = useCallback(
+    (updater) => {
+      hasUserEditedFormRef.current = true;
+      setFormData((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        latestStateRef.current.formData = next;
+        persistFormDataImmediately(next);
+        return next;
+      });
+    },
+    [persistFormDataImmediately]
+  );
+
+  // Hidratación de respaldo desde IndexedDB al iniciar (por si localStorage se vació o quedó desactualizado)
   useEffect(() => {
-    setSaveStatus("saving");
-    const timer = setTimeout(() => {
+    let isMounted = true;
+    const restoreFromIDBIfNewer = async () => {
       try {
-        localStorage.setItem("ats_form_data", JSON.stringify(formData));
-        localStorage.setItem("ats_empresa_config", JSON.stringify(empresa));
-        localStorage.setItem("ats_staff_list", JSON.stringify(staffList));
-        if (empresa.logoUrl) {
-          saveLogoToStorage(empresa.logoUrl);
+        const idbBackup = await getAppSettingsFromIDB<{
+          formData?: ATSFormData;
+          empresa?: EmpresaConfig;
+          staffList?: PersonalMember[];
+          updatedAt?: string;
+          updatedAtMs?: number;
+        }>("ats_draft_backup");
+
+        if (!isMounted || !idbBackup?.formData || hasUserEditedFormRef.current) return;
+
+        const hasLocalDraft = Boolean(localStorage.getItem("ats_form_data"));
+        const localUpdatedMs = Number(localStorage.getItem("ats_form_data_updated_at") || "0");
+        const idbUpdatedMs =
+          idbBackup.updatedAtMs ||
+          (idbBackup.updatedAt ? new Date(idbBackup.updatedAt).getTime() : 0);
+
+        if (!hasLocalDraft || (idbUpdatedMs > localUpdatedMs && localUpdatedMs > 0)) {
+          const mergedFormData: ATSFormData = {
+            ...INITIAL_FORM_DATA,
+            ...idbBackup.formData,
+            supervisor: {
+              ...INITIAL_FORM_DATA.supervisor,
+              ...(idbBackup.formData.supervisor || {}),
+            },
+            eppsSeleccionados: {
+              ...INITIAL_FORM_DATA.eppsSeleccionados,
+              ...(idbBackup.formData.eppsSeleccionados || {}),
+            },
+          };
+          setFormData(mergedFormData);
+          latestStateRef.current.formData = mergedFormData;
+          try {
+            localStorage.setItem("ats_form_data", JSON.stringify(mergedFormData));
+            localStorage.setItem("ats_form_data_updated_at", String(idbUpdatedMs || Date.now()));
+          } catch {}
         }
-
-        // Backup in IndexedDB for 100% reliable offline persistence
-        saveAppSettingsToIDB("ats_draft_backup", {
-          formData,
-          empresa,
-          staffList,
-          updatedAt: new Date().toISOString(),
-        }).catch((err) => console.warn("IDB draft backup warn:", err));
-
-        const nowFormatted = new Date().toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        });
-        localStorage.setItem("ats_last_saved_time", nowFormatted);
-        setLastSavedTime(nowFormatted);
-        setSaveStatus("saved");
       } catch (err) {
-        console.error("Error al sincronizar con almacenamiento:", err);
-        setSaveStatus("error");
+        console.warn("Aviso restaurando borrador desde IndexedDB:", err);
       }
-    }, 180);
+    };
 
-    return () => clearTimeout(timer);
+    restoreFromIDBIfNewer();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Persistencia inmediata de empresa, personal y respaldo completo en IndexedDB
+  useEffect(() => {
+    try {
+      localStorage.setItem("ats_form_data", JSON.stringify(formData));
+    } catch (err) {
+      console.error("Error guardando ats_form_data:", err);
+    }
+    try {
+      localStorage.setItem("ats_empresa_config", JSON.stringify(empresa));
+      if (empresa.logoUrl) {
+        saveLogoToStorage(empresa.logoUrl);
+      }
+    } catch (err) {
+      console.warn("Aviso guardando ats_empresa_config:", err);
+    }
+    try {
+      localStorage.setItem("ats_staff_list", JSON.stringify(staffList));
+    } catch (err) {
+      console.warn("Aviso guardando ats_staff_list:", err);
+    }
+
+    const updatedAtMs = Date.now();
+    saveAppSettingsToIDB("ats_draft_backup", {
+      formData,
+      empresa,
+      staffList,
+      updatedAt: new Date(updatedAtMs).toISOString(),
+      updatedAtMs,
+    }).catch((err) => console.warn("IDB draft backup warn:", err));
+
+    const nowFormatted = new Date(updatedAtMs).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    try {
+      localStorage.setItem("ats_last_saved_time", nowFormatted);
+      localStorage.setItem("ats_form_data_updated_at", String(updatedAtMs));
+    } catch {}
+    setLastSavedTime(nowFormatted);
+    setSaveStatus("saved");
   }, [formData, empresa, staffList]);
 
-  // Synchronous flush on window unload/reload to prevent ANY accidental loss
+  // Synchronous flush on unload / pagehide / visibilitychange (escritorio y móviles PWA)
   useEffect(() => {
-    const handleBeforeUnload = () => {
+    const flushStateSynchronously = () => {
+      const { formData: curForm, empresa: curEmpresa, staffList: curStaff } = latestStateRef.current;
+      const nowMs = Date.now();
       try {
-        localStorage.setItem("ats_form_data", JSON.stringify(formData));
-        localStorage.setItem("ats_empresa_config", JSON.stringify(empresa));
-        localStorage.setItem("ats_staff_list", JSON.stringify(staffList));
-        if (empresa.logoUrl) {
-          saveLogoToStorage(empresa.logoUrl);
+        localStorage.setItem("ats_form_data", JSON.stringify(curForm));
+        localStorage.setItem("ats_form_data_updated_at", String(nowMs));
+      } catch (e) {
+        console.error(e);
+      }
+      try {
+        localStorage.setItem("ats_empresa_config", JSON.stringify(curEmpresa));
+        if (curEmpresa.logoUrl) {
+          saveLogoToStorage(curEmpresa.logoUrl);
         }
+      } catch {}
+      try {
+        localStorage.setItem("ats_staff_list", JSON.stringify(curStaff));
+      } catch {}
+      try {
         localStorage.setItem(
           "ats_last_saved_time",
-          new Date().toLocaleTimeString([], {
+          new Date(nowMs).toLocaleTimeString([], {
             hour: "2-digit",
             minute: "2-digit",
             second: "2-digit",
           })
         );
-      } catch (e) {
-        console.error(e);
+      } catch {}
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        flushStateSynchronously();
       }
     };
 
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [formData, empresa, staffList]);
+    window.addEventListener("beforeunload", flushStateSynchronously);
+    window.addEventListener("pagehide", flushStateSynchronously);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("beforeunload", flushStateSynchronously);
+      window.removeEventListener("pagehide", flushStateSynchronously);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  // Calcular escala responsiva automática para la vista previa PDF en pantallas de iPhone/móvil
+  useEffect(() => {
+    if (viewMode !== "preview") return;
+
+    const recalculatePreviewScale = () => {
+      const viewportEl = previewViewportRef.current;
+      const canvasEl = previewCanvasRef.current;
+      if (!viewportEl || !canvasEl) return;
+
+      const availableWidth = viewportEl.clientWidth;
+      if (previewZoomMode === "fit" && availableWidth > 0 && availableWidth < 816) {
+        const nextScale = Math.max(0.32, Math.min(1, availableWidth / 816));
+        const rawHeight = canvasEl.scrollHeight || canvasEl.offsetHeight;
+        setPreviewScale(nextScale);
+        setPreviewScaledHeight(rawHeight > 0 ? Math.ceil(rawHeight * nextScale) + 8 : null);
+      } else {
+        setPreviewScale(1);
+        setPreviewScaledHeight(null);
+      }
+    };
+
+    recalculatePreviewScale();
+    const rafId = requestAnimationFrame(recalculatePreviewScale);
+
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => recalculatePreviewScale())
+        : null;
+
+    if (resizeObserver) {
+      if (previewViewportRef.current) resizeObserver.observe(previewViewportRef.current);
+      if (previewCanvasRef.current) resizeObserver.observe(previewCanvasRef.current);
+    }
+
+    window.addEventListener("resize", recalculatePreviewScale);
+    window.addEventListener("orientationchange", recalculatePreviewScale);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", recalculatePreviewScale);
+      window.removeEventListener("orientationchange", recalculatePreviewScale);
+    };
+  }, [viewMode, previewZoomMode, formData, empresa]);
 
   // Sincronización con el servidor central:
   // Garantiza que el logotipo y plantilla oficial de DCM se compartan en todos los enlaces y dispositivos
@@ -371,6 +565,7 @@ function ATSAppContent() {
 
     const applyATSData = (data: any, sourceLabel: string, syncState: "synced" | "pending") => {
       if (data.pasos && Array.isArray(data.pasos)) {
+        const currentLatest = latestStateRef.current.formData;
         const formattedPasos = data.pasos.map((item: any, idx: number) => ({
           id: `paso-ai-${Date.now()}-${idx}`,
           numero: item.numero || idx + 1,
@@ -380,14 +575,17 @@ function ATSAppContent() {
           responsable:
             item.responsable ||
             item.responsableSugerido ||
-            formData.trabajadores[idx % formData.trabajadores.length]?.nombre ||
+            currentLatest.trabajadores[idx % Math.max(1, currentLatest.trabajadores.length)]?.nombre ||
             "Técnico Ejecutor",
         }));
 
-        const deducedTipo = data.tipoTrabajo || typeOverride || "Trabajo a Nivel de Piso / Locativo";
-        const deducedAltura = data.alturaAproximada || heightOverride || "N/A - Nivel de piso";
+        const explicitHeight = heightOverride && heightOverride.trim() ? heightOverride.trim() : "";
+        const explicitType = typeOverride && typeOverride.trim() ? typeOverride.trim() : "";
+
+        const deducedTipo = explicitType || data.tipoTrabajo || "Trabajo a Nivel de Piso / Locativo";
+        const deducedAltura = explicitHeight || data.alturaAproximada || "N/A - Nivel de piso";
         const deducedDetalle = data.detalleLabor || detailOverride || taskToUse;
-        const deducedObservaciones = data.observaciones || formData.observaciones || "";
+        const deducedObservaciones = data.observaciones || currentLatest.observaciones || "";
 
         const isGroundLevel =
           deducedAltura.toLowerCase().includes("n/a") ||
@@ -441,39 +639,51 @@ function ATSAppContent() {
           });
         }
 
-        let updatedArea = [...formData.preparacionArea];
-        if (data.preparacionArea && Array.isArray(data.preparacionArea)) {
-          data.preparacionArea.forEach((item: { itemIndex: number; estado: "SI" | "NO" | "N.A." }) => {
-            if (updatedArea[item.itemIndex]) {
-              updatedArea[item.itemIndex].estado = item.estado;
-            }
-          });
-        } else if (isGroundLevel) {
-          if (updatedArea[1]) updatedArea[1].estado = "N.A.";
-          if (updatedArea[2]) updatedArea[2].estado = "N.A.";
-          if (updatedArea[4]) updatedArea[4].estado = "N.A.";
-          if (updatedArea[7]) updatedArea[7].estado = "N.A.";
-        }
+        let updatedATSDataSnapshot: ATSFormData | null = null;
+        handleFormDataChange((prev) => {
+          const updatedArea = prev.preparacionArea.map((item) => ({ ...item }));
+          if (data.preparacionArea && Array.isArray(data.preparacionArea)) {
+            data.preparacionArea.forEach((item: { itemIndex: number; estado: "SI" | "NO" | "N.A." }) => {
+              if (updatedArea[item.itemIndex]) {
+                updatedArea[item.itemIndex].estado = item.estado;
+              }
+            });
+          } else if (isGroundLevel) {
+            if (updatedArea[1]) updatedArea[1].estado = "N.A.";
+            if (updatedArea[2]) updatedArea[2].estado = "N.A.";
+            if (updatedArea[4]) updatedArea[4].estado = "N.A.";
+            if (updatedArea[7]) updatedArea[7].estado = "N.A.";
+          }
 
-        const updatedATSData: ATSFormData = {
-          ...formData,
-          tareaGeneral: taskToUse,
-          alturaAproximada: deducedAltura,
-          detalleLabor: deducedDetalle,
-          tipoTrabajo: deducedTipo,
-          observaciones: deducedObservaciones,
-          pasos: formattedPasos,
-          eppsSeleccionados: cleanEpps,
-          preparacionArea: updatedArea,
-        };
-
-        setFormData(updatedATSData);
+          updatedATSDataSnapshot = {
+            ...prev,
+            tareaGeneral: prev.tareaGeneral?.trim() ? prev.tareaGeneral : taskToUse,
+            alturaAproximada: deducedAltura,
+            detalleLabor: deducedDetalle,
+            tipoTrabajo: deducedTipo,
+            observaciones: deducedObservaciones,
+            pasos: formattedPasos,
+            eppsSeleccionados: cleanEpps,
+            preparacionArea: updatedArea,
+          };
+          return updatedATSDataSnapshot;
+        });
 
         try {
+          const snapshotToSave = updatedATSDataSnapshot || {
+            ...latestStateRef.current.formData,
+            tareaGeneral: taskToUse,
+            alturaAproximada: deducedAltura,
+            detalleLabor: deducedDetalle,
+            tipoTrabajo: deducedTipo,
+            observaciones: deducedObservaciones,
+            pasos: formattedPasos,
+            eppsSeleccionados: cleanEpps,
+          };
           const { record } = saveHistoryRecord(
-            updatedATSData,
-            empresa,
-            staffList,
+            snapshotToSave,
+            latestStateRef.current.empresa,
+            latestStateRef.current.staffList,
             currentHistoryId || undefined,
             syncState
           );
@@ -571,23 +781,39 @@ function ATSAppContent() {
     if (!signTarget) return;
 
     if (signTarget.type === "worker" && signTarget.id) {
-      setFormData((prev) => ({
+      const targetId = signTarget.id;
+      handleFormDataChange((prev) => ({
         ...prev,
         firmasTrabajadores: {
           ...prev.firmasTrabajadores,
-          [signTarget.id!]: dataUrl,
+          [targetId]: dataUrl,
         },
       }));
-      showToast(`Firma registrada para ${signTarget.name}`);
+      // También guardar la firma en el directorio permanente de personal
+      setStaffList((prev) =>
+        prev.map((member) =>
+          member.id === targetId ? { ...member, firmaUrl: dataUrl } : member
+        )
+      );
+      showToast(`Firma registrada y guardada para ${signTarget.name}`);
     } else if (signTarget.type === "supervisor") {
-      setFormData((prev) => ({
+      handleFormDataChange((prev) => ({
         ...prev,
         supervisor: {
           ...prev.supervisor,
           firmaUrl: dataUrl,
         },
       }));
-      showToast("Firma registrada para el Supervisor SST");
+      // También guardar la firma en el coordinador SST correspondiente dentro del directorio
+      setStaffList((prev) =>
+        prev.map((member) =>
+          member.cedula.trim() === formData.supervisor.cedula.trim() ||
+          member.nombre.trim() === formData.supervisor.nombre.trim()
+            ? { ...member, firmaUrl: dataUrl }
+            : member
+        )
+      );
+      showToast("Firma registrada y guardada para el Supervisor SST");
     }
     setSignTarget(null);
   };
@@ -600,14 +826,18 @@ function ATSAppContent() {
         showToast("El ATS debe tener al menos un trabajador asignado.");
         return;
       }
-      setFormData((prev) => ({
+      handleFormDataChange((prev) => ({
         ...prev,
         trabajadores: prev.trabajadores.filter((w) => w.id !== member.id),
       }));
     } else {
-      setFormData((prev) => ({
+      handleFormDataChange((prev) => ({
         ...prev,
         trabajadores: [...prev.trabajadores, member],
+        firmasTrabajadores:
+          member.firmaUrl && !prev.firmasTrabajadores[member.id]
+            ? { ...prev.firmasTrabajadores, [member.id]: member.firmaUrl }
+            : prev.firmasTrabajadores,
       }));
     }
   };
@@ -678,7 +908,13 @@ function ATSAppContent() {
 
   // Cargar ATS guardado desde el Historial
   const handleLoadATSFromHistory = (record: ATSHistoryRecord, targetView: "form" | "preview" = "form") => {
-    setFormData(record.formData);
+    try {
+      localStorage.setItem(
+        "ats_manual_edited_fields",
+        JSON.stringify({ id: record.formData.id, altura: true, tipo: true })
+      );
+    } catch {}
+    handleFormDataChange(record.formData);
     if (record.empresa) {
       setEmpresa(record.empresa);
       if (record.empresa.logoUrl) {
@@ -707,8 +943,9 @@ function ATSAppContent() {
 
     setCurrentHistoryId(null);
     localStorage.removeItem("ats_current_history_id");
+    localStorage.removeItem("ats_manual_edited_fields");
 
-    setFormData({
+    handleFormDataChange({
       ...INITIAL_FORM_DATA,
       id: newId,
       codigo: empresa.codigoFormato || "F-SST-045",
@@ -729,7 +966,7 @@ function ATSAppContent() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col antialiased">
+    <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col antialiased overflow-x-hidden print:overflow-visible">
       {/* APP TOP NAVIGATION BAR (Hidden in print) */}
       <header className="no-print sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b-2 border-slate-200 shadow-xs">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 h-16 sm:h-18 flex items-center justify-between gap-2 sm:gap-4">
@@ -976,9 +1213,10 @@ function ATSAppContent() {
                       <LogOut className="w-4 h-4 text-rose-500" />
                       <span>Cerrar Sesión</span>
                     </button>
-                    <div className="px-4 py-2">
-                      <PWAInstallButton />
-                    </div>
+                    <PWAInstallButton
+                      variant="menu-item"
+                      onOpenGuide={() => setIsPWAModalOpen(true)}
+                    />
                   </div>
                 </div>
               )}
@@ -996,12 +1234,12 @@ function ATSAppContent() {
       )}
 
       {/* MAIN CONTENT AREA */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 print:p-0 print:m-0 print:max-w-none print:w-full">
+      <main className="flex-1 max-w-7xl w-full min-w-0 mx-auto p-3 sm:p-6 print:p-0 print:m-0 print:max-w-none print:w-full">
         {viewMode === "form" ? (
           <div className="no-print space-y-6">
             <ATSInteractiveForm
               formData={formData}
-              onChangeFormData={setFormData}
+              onChangeFormData={handleFormDataChange}
               empresa={empresa}
               staffList={staffList}
               onOpenStaffModal={() => setIsStaffModalOpen(true)}
@@ -1028,112 +1266,128 @@ function ATSAppContent() {
 
           </div>
         ) : (
-          <div className="no-print space-y-6">
-            {/* Toolbar for Preview Mode */}
-            <div className="no-print bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
-                  Formato Oficial Unificado {empresa.codigoFormato || "F-SST-045"} (Encabezado Único · Listo para Presentar)
+          <div className="no-print space-y-4 sm:space-y-6 min-w-0">
+            {/* Toolbar for Preview Mode (Responsive para iPhone y Escritorio) */}
+            <div className="no-print bg-white rounded-2xl border border-slate-200 p-3.5 sm:p-4 shadow-2xs flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wide leading-snug">
+                  Formato Oficial Unificado {empresa.codigoFormato || "F-SST-045"} (Listo para Presentar)
                 </span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full lg:w-auto">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("form")}
+                  className="inline-flex items-center justify-center gap-1.5 min-h-[42px] text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 px-3 py-2 rounded-xl transition-colors cursor-pointer"
+                >
+                  <Edit3 className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                  <span>Editar ATS</span>
+                </button>
                 <button
                   type="button"
                   onClick={printDirect}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg transition-colors shadow-2xs"
+                  className="inline-flex items-center justify-center gap-1.5 min-h-[42px] text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl transition-colors shadow-2xs cursor-pointer"
                   title="Imprimir formato oficial unificado"
                 >
-                  <Printer className="w-3.5 h-3.5 text-slate-700" />
+                  <Printer className="w-3.5 h-3.5 text-slate-700 shrink-0" />
                   <span>Imprimir</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setIsCompanyModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-lg transition-colors"
+                  className="inline-flex items-center justify-center gap-1.5 min-h-[42px] text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-3 py-2 rounded-xl transition-colors cursor-pointer"
                 >
-                  <Building className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>Configurar Logo</span>
+                  <Building className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span>Logo / Empresa</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setIsEmailModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                  className="inline-flex items-center justify-center gap-1.5 min-h-[42px] text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-2 rounded-xl transition-colors cursor-pointer"
                   title="Enviar formato PDF oficial por correo electrónico"
                 >
-                  <Mail className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Enviar al Correo</span>
+                  <Mail className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <span>Enviar Correo</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleExportPDF}
                   disabled={isExportingPDF}
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 px-4 py-1.5 rounded-lg shadow-2xs transition-colors"
+                  className="col-span-2 sm:col-span-1 inline-flex items-center justify-center gap-1.5 min-h-[44px] text-xs sm:text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 px-4 py-2 rounded-xl shadow-xs transition-colors cursor-pointer"
                   title="Descargar documento PDF oficial unificado"
                 >
-                  <FileDown className="w-3.5 h-3.5" />
-                  <span>{isExportingPDF ? "Generando..." : "Descargar PDF Unificado"}</span>
+                  <FileDown className="w-4 h-4 shrink-0" />
+                  <span>{isExportingPDF ? "Generando PDF..." : "Descargar PDF Unificado"}</span>
                 </button>
               </div>
             </div>
 
-            {/* Responsive notice for mobile devices */}
-            <div className="no-print sm:hidden bg-blue-50 border border-blue-200 text-blue-900 text-xs px-3.5 py-2.5 rounded-xl flex items-center gap-2 shadow-2xs">
-              <span className="text-base">📄</span>
-              <p className="text-[11px] leading-tight">
-                <strong>Vista Carta 1:1 fija (215.9mm):</strong> Desliza horizontalmente para revisar la hoja completa y verificar los márgenes exactos sin distorsión.
+            {/* Control de zoom responsivo exclusivo para iPhone / pantallas angostas */}
+            <div className="no-print md:hidden bg-blue-50 border border-blue-200 text-blue-900 text-xs px-3.5 py-2.5 rounded-xl flex items-center justify-between gap-2.5 shadow-2xs">
+              <p className="text-[11px] leading-tight font-medium">
+                {previewZoomMode === "fit"
+                  ? "Vista Carta ajustada automáticamente al ancho de tu pantalla."
+                  : "Vista Carta 1:1 real (215.9mm). Desliza horizontalmente para revisar."}
               </p>
+              <button
+                type="button"
+                onClick={() => setPreviewZoomMode((m) => (m === "fit" ? "actual" : "fit"))}
+                className="shrink-0 text-[11px] font-bold bg-white text-blue-800 border border-blue-300 px-2.5 py-1.5 rounded-lg shadow-2xs cursor-pointer active:scale-95"
+              >
+                {previewZoomMode === "fit" ? "Zoom 1:1" : "Ajustar"}
+              </button>
             </div>
 
-            {/* Document Render Container with rigid horizontal shield (816px Letter) */}
-            <div className="ats-preview-scroll-wrapper w-full overflow-x-auto pb-8">
-              <div className="ats-preview-canvas w-[816px] min-w-[816px] max-w-[816px] mx-auto py-2">
-                <ATSPrintFormat
-                  formData={formData}
-                  empresa={empresa}
-                  onOpenSignModal={(target) => setSignTarget(target)}
-                  onOpenCompanyModal={() => setIsCompanyModalOpen(true)}
-                  id="ats-preview-document"
-                />
+            {/* Document Render Container: escala responsiva en iPhone o scroll 1:1 */}
+            <div
+              ref={previewViewportRef}
+              className={
+                previewZoomMode === "fit" && previewScale < 1
+                  ? "ats-preview-fit-wrapper"
+                  : "ats-preview-scroll-wrapper"
+              }
+            >
+              <div
+                className={previewZoomMode === "fit" && previewScale < 1 ? "ats-preview-scale-box" : ""}
+                style={
+                  previewZoomMode === "fit" && previewScale < 1 && previewScaledHeight
+                    ? { height: `${previewScaledHeight}px` }
+                    : undefined
+                }
+              >
+                <div
+                  ref={previewCanvasRef}
+                  className={`ats-preview-canvas ${
+                    previewZoomMode === "fit" && previewScale < 1 ? "ats-preview-canvas--scaled py-1" : "py-2"
+                  }`}
+                  style={
+                    previewZoomMode === "fit" && previewScale < 1
+                      ? { transform: `scale(${previewScale})` }
+                      : undefined
+                  }
+                >
+                  <ATSPrintFormat
+                    formData={formData}
+                    empresa={empresa}
+                    onOpenSignModal={(target) => setSignTarget(target)}
+                    onOpenCompanyModal={() => setIsCompanyModalOpen(true)}
+                    id="ats-preview-document"
+                  />
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* DEDICATED OFFSCREEN STAGE FOR HIGH-FIDELITY PDF EXPORT (ISOLATED PAGES 1 & 2) */}
+        {/* DEDICATED OFFSCREEN STAGE FOR HIGH-FIDELITY PDF EXPORT (ISOLATED 0x0 HOST SO IPHONE NEVER OVERFLOWS) */}
         <div
           id="ats-pdf-export-stage"
           aria-hidden="true"
-          style={{
-            position: "fixed",
-            left: "-99999px",
-            top: 0,
-            width: "816px",
-            minWidth: "816px",
-            maxWidth: "816px",
-            backgroundColor: "#ffffff",
-            zIndex: -99999,
-            pointerEvents: "none",
-            visibility: "visible",
-            opacity: 1,
-          }}
+          className="ats-pdf-export-stage"
         >
           {/* Isolated Page 1 for pristine Letter export */}
-          <div
-            id="ats-export-page-1"
-            style={{
-              width: "816px",
-              minWidth: "816px",
-              maxWidth: "816px",
-              height: "1056px",
-              minHeight: "1056px",
-              maxHeight: "1056px",
-              overflow: "hidden",
-              backgroundColor: "#ffffff",
-              margin: 0,
-              padding: 0,
-            }}
-          >
+          <div id="ats-export-page-1" className="ats-export-page-box">
             <ATSPrintFormat
               formData={formData}
               empresa={empresa}
@@ -1143,21 +1397,7 @@ function ATSAppContent() {
           </div>
 
           {/* Isolated Page 2 for pristine Letter export */}
-          <div
-            id="ats-export-page-2"
-            style={{
-              width: "816px",
-              minWidth: "816px",
-              maxWidth: "816px",
-              height: "1056px",
-              minHeight: "1056px",
-              maxHeight: "1056px",
-              overflow: "hidden",
-              backgroundColor: "#ffffff",
-              margin: 0,
-              padding: 0,
-            }}
-          >
+          <div id="ats-export-page-2" className="ats-export-page-box">
             <ATSPrintFormat
               formData={formData}
               empresa={empresa}
@@ -1222,11 +1462,38 @@ function ATSAppContent() {
         onToggleActiveWorker={handleToggleActiveWorker}
         supervisor={formData.supervisor}
         onUpdateSupervisor={(updatedSup) => {
-          setFormData((prev) => ({ ...prev, supervisor: updatedSup }));
+          handleFormDataChange((prev) => ({ ...prev, supervisor: updatedSup }));
           showToast("Coordinador SST actualizado con éxito");
         }}
         onUpdateActiveWorkers={(updatedWorkers) => {
-          setFormData((prev) => ({ ...prev, trabajadores: updatedWorkers }));
+          handleFormDataChange((prev) => {
+            const nextFirmas = { ...prev.firmasTrabajadores };
+            for (const w of updatedWorkers) {
+              if (w.firmaUrl && !nextFirmas[w.id]) {
+                nextFirmas[w.id] = w.firmaUrl;
+              }
+            }
+            return {
+              ...prev,
+              trabajadores: updatedWorkers,
+              firmasTrabajadores: nextFirmas,
+            };
+          });
+        }}
+        activeWorkerSignatures={formData.firmasTrabajadores}
+        onSaveWorkerSignature={(workerId, signatureDataUrl) => {
+          handleFormDataChange((prev) => {
+            const nextFirmas = { ...prev.firmasTrabajadores };
+            if (signatureDataUrl) {
+              nextFirmas[workerId] = signatureDataUrl;
+            } else {
+              delete nextFirmas[workerId];
+            }
+            return {
+              ...prev,
+              firmasTrabajadores: nextFirmas,
+            };
+          });
         }}
       />
 
@@ -1274,6 +1541,13 @@ function ATSAppContent() {
         }}
         currentATSId={currentHistoryId || undefined}
         onSaveCurrentATS={() => handleSaveCurrentATS(true)}
+      />
+
+      {/* PWA CROSS-BROWSER INSTALL PROMPT & GUIDE MODAL */}
+      <PWAInstallFloatingPrompt />
+      <PWAInstallModal
+        isOpen={isPWAModalOpen}
+        onClose={() => setIsPWAModalOpen(false)}
       />
     </div>
   );

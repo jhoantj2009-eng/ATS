@@ -242,6 +242,27 @@ export async function saveAppSettingsToIDB(key: string, value: any): Promise<voi
 }
 
 /**
+ * Recupera un valor guardado por clave en el almacén app_settings de IndexedDB
+ */
+export async function getAppSettingsFromIDB<T = any>(key: string): Promise<T | null> {
+  try {
+    const db = await openIndexedDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction(STORE_SETTINGS, "readonly");
+      const store = tx.objectStore(STORE_SETTINGS);
+      const request = store.get(key);
+      request.onsuccess = () => {
+        const res = request.result as { key: string; value: T } | undefined;
+        resolve(res ? res.value : null);
+      };
+      request.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Migra automáticamente los datos existentes de localStorage hacia IndexedDB
  */
 export async function migrateLocalStorageToIndexedDB(): Promise<void> {

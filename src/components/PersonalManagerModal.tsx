@@ -11,8 +11,11 @@ import {
   UserPlus,
   Save,
   Award,
+  PenTool,
+  Eraser,
 } from "lucide-react";
 import { PersonalMember } from "../types";
+import { SignatureModal } from "./SignatureModal";
 
 interface SupervisorData {
   nombre: string;
@@ -31,6 +34,8 @@ interface PersonalManagerModalProps {
   supervisor?: SupervisorData;
   onUpdateSupervisor?: (supervisor: SupervisorData) => void;
   onUpdateActiveWorkers?: (workers: PersonalMember[]) => void;
+  activeWorkerSignatures?: Record<string, string>;
+  onSaveWorkerSignature?: (workerId: string, signatureDataUrl: string) => void;
 }
 
 export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
@@ -43,10 +48,21 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
   supervisor,
   onUpdateSupervisor,
   onUpdateActiveWorkers,
+  activeWorkerSignatures,
+  onSaveWorkerSignature,
 }) => {
   const [activeTab, setActiveTab] = useState<"cuadrilla" | "coordinador">("cuadrilla");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
+
+  // Modal de firma digital integrado en Gestión de Personal
+  const [signaturePrompt, setSignaturePrompt] = useState<{
+    mode: "form" | "member";
+    memberId?: string;
+    name: string;
+    initialSignature?: string;
+    isCoordinator?: boolean;
+  } | null>(null);
 
   // Form fields for workers
   const [workerFormData, setWorkerFormData] = useState<Omit<PersonalMember, "id">>({
@@ -55,6 +71,7 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
     cargo: "",
     arl: "SURA ARL",
     rol: "trabajador",
+    firmaUrl: "",
   });
 
   // Supervisor form fields
@@ -89,6 +106,7 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
       cargo: "Técnico Especialista en Alturas",
       arl: "SURA ARL",
       rol: "trabajador",
+      firmaUrl: "",
     });
   };
 
@@ -101,6 +119,7 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
       cargo: member.cargo,
       arl: member.arl,
       rol: member.rol || "trabajador",
+      firmaUrl: member.firmaUrl || activeWorkerSignatures?.[member.id] || "",
     });
   };
 
@@ -120,6 +139,9 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
       // Also add directly to active workers
       if (onUpdateActiveWorkers) {
         onUpdateActiveWorkers([...activeWorkers, newMember]);
+      }
+      if (onSaveWorkerSignature && newMember.firmaUrl) {
+        onSaveWorkerSignature(newMember.id, newMember.firmaUrl);
       }
       setIsAddingNew(false);
     } else if (editingId) {
@@ -142,6 +164,10 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
         }
       }
 
+      if (onSaveWorkerSignature && workerFormData.firmaUrl !== undefined) {
+        onSaveWorkerSignature(editingId, workerFormData.firmaUrl);
+      }
+
       // If this worker was the supervisor, sync supervisor too
       if (
         onUpdateSupervisor &&
@@ -154,11 +180,58 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
           nombre: workerFormData.nombre,
           cedula: workerFormData.cedula,
           cargo: workerFormData.cargo || supervisor.cargo,
+          firmaUrl: workerFormData.firmaUrl || supervisor.firmaUrl,
         });
       }
 
       setEditingId(null);
     }
+  };
+
+  const handleSaveSignatureFromModal = (dataUrl: string) => {
+    if (!signaturePrompt) return;
+
+    if (signaturePrompt.mode === "form") {
+      setWorkerFormData((prev) => ({ ...prev, firmaUrl: dataUrl }));
+    } else if (signaturePrompt.mode === "member" && signaturePrompt.memberId) {
+      const targetId = signaturePrompt.memberId;
+      const targetMember = staffList.find((s) => s.id === targetId);
+
+      const updatedList = staffList.map((item) =>
+        item.id === targetId ? { ...item, firmaUrl: dataUrl } : item
+      );
+      onUpdateStaffList(updatedList);
+
+      if (onUpdateActiveWorkers) {
+        const isCurrentlyActive = activeWorkers.some((item) => item.id === targetId);
+        if (isCurrentlyActive) {
+          onUpdateActiveWorkers(
+            activeWorkers.map((item) =>
+              item.id === targetId ? { ...item, firmaUrl: dataUrl } : item
+            )
+          );
+        }
+      }
+
+      if (onSaveWorkerSignature) {
+        onSaveWorkerSignature(targetId, dataUrl);
+      }
+
+      if (
+        onUpdateSupervisor &&
+        supervisor &&
+        targetMember &&
+        (supervisor.cedula.trim() === targetMember.cedula.trim() ||
+          supervisor.nombre.trim() === targetMember.nombre.trim())
+      ) {
+        onUpdateSupervisor({
+          ...supervisor,
+          firmaUrl: dataUrl,
+        });
+      }
+    }
+
+    setSignaturePrompt(null);
   };
 
   const handleDeleteWorker = (id: string) => {
@@ -383,6 +456,54 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
                         className="w-full text-xs px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-blue-500 font-medium text-emerald-800"
                       />
                     </div>
+
+                    {/* Firma digital guardada del trabajador */}
+                    <div className="sm:col-span-2 pt-1">
+                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                        Firma Digital Guardada (Opcional)
+                      </label>
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 p-3 rounded-xl border border-slate-300 bg-white">
+                        <div className="h-16 sm:w-44 border border-dashed border-slate-300 rounded-lg bg-slate-50 flex items-center justify-center overflow-hidden shrink-0">
+                          {workerFormData.firmaUrl ? (
+                            <img
+                              src={workerFormData.firmaUrl}
+                              alt="Vista previa de firma"
+                              className="max-h-14 max-w-full object-contain p-1"
+                            />
+                          ) : (
+                            <span className="text-[11px] text-slate-400 font-medium px-2 text-center">
+                              Sin firma registrada
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap flex-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSignaturePrompt({
+                                mode: "form",
+                                name: workerFormData.nombre || "Nuevo Trabajador",
+                                initialSignature: workerFormData.firmaUrl,
+                              })
+                            }
+                            className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-900 bg-amber-400 hover:bg-amber-300 border border-amber-500 px-3.5 py-2 rounded-lg shadow-2xs transition-colors cursor-pointer"
+                          >
+                            <PenTool className="w-3.5 h-3.5" />
+                            <span>{workerFormData.firmaUrl ? "Cambiar Firma" : "Capturar Firma"}</span>
+                          </button>
+                          {workerFormData.firmaUrl && (
+                            <button
+                              type="button"
+                              onClick={() => setWorkerFormData({ ...workerFormData, firmaUrl: "" })}
+                              className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:bg-red-50 border border-red-200 px-2.5 py-2 rounded-lg transition-colors cursor-pointer"
+                            >
+                              <Eraser className="w-3.5 h-3.5" />
+                              <span>Quitar</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="flex items-center justify-end gap-2 pt-2">
@@ -470,6 +591,7 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
                       supervisor &&
                       (supervisor.cedula.trim() === member.cedula.trim() ||
                         supervisor.nombre.trim() === member.nombre.trim());
+                    const memberSignature = member.firmaUrl || activeWorkerSignatures?.[member.id];
 
                     return (
                       <div
@@ -508,6 +630,12 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
                                   Coordinador SST
                                 </span>
                               )}
+                              {memberSignature && (
+                                <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.2 rounded flex items-center gap-1 shrink-0">
+                                  <PenTool className="w-2.5 h-2.5" />
+                                  Firma guardada
+                                </span>
+                              )}
                             </div>
                             <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-slate-500 mt-0.5">
                               <span>CC: <strong className="text-slate-700 font-mono">{member.cedula}</strong></span>
@@ -521,6 +649,26 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
 
                         {/* Actions */}
                         <div className="flex items-center gap-1.5 justify-end shrink-0 sm:ml-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSignaturePrompt({
+                                mode: "member",
+                                memberId: member.id,
+                                name: member.nombre,
+                                initialSignature: memberSignature,
+                              })
+                            }
+                            className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md border transition-colors cursor-pointer ${
+                              memberSignature
+                                ? "text-blue-700 bg-blue-50 hover:bg-blue-100 border-blue-200"
+                                : "text-slate-700 bg-slate-100 hover:bg-slate-200 border-slate-300"
+                            }`}
+                            title={memberSignature ? "Ver o actualizar firma guardada" : "Capturar y guardar firma"}
+                          >
+                            <PenTool className="w-3 h-3" />
+                            <span>{memberSignature ? "Firma" : "Firmar"}</span>
+                          </button>
                           {!isCoordinator && (
                             <button
                               type="button"
@@ -650,6 +798,55 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
                         className="w-full text-xs px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-emerald-500 font-medium"
                       />
                     </div>
+
+                    {/* Firma digital guardada del coordinador */}
+                    <div className="sm:col-span-2 pt-1">
+                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                        Firma Digital Guardada del Coordinador SST (Opcional)
+                      </label>
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 p-3 rounded-xl border border-slate-300 bg-white">
+                        <div className="h-16 sm:w-44 border border-dashed border-slate-300 rounded-lg bg-slate-50 flex items-center justify-center overflow-hidden shrink-0">
+                          {workerFormData.firmaUrl ? (
+                            <img
+                              src={workerFormData.firmaUrl}
+                              alt="Vista previa de firma del coordinador"
+                              className="max-h-14 max-w-full object-contain p-1"
+                            />
+                          ) : (
+                            <span className="text-[11px] text-slate-400 font-medium px-2 text-center">
+                              Sin firma registrada
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap flex-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSignaturePrompt({
+                                mode: "form",
+                                name: workerFormData.nombre || "Coordinador SST",
+                                initialSignature: workerFormData.firmaUrl,
+                                isCoordinator: true,
+                              })
+                            }
+                            className="inline-flex items-center gap-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-3.5 py-2 rounded-lg shadow-2xs transition-colors cursor-pointer"
+                          >
+                            <PenTool className="w-3.5 h-3.5" />
+                            <span>{workerFormData.firmaUrl ? "Cambiar Firma" : "Capturar Firma"}</span>
+                          </button>
+                          {workerFormData.firmaUrl && (
+                            <button
+                              type="button"
+                              onClick={() => setWorkerFormData({ ...workerFormData, firmaUrl: "" })}
+                              className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:bg-red-50 border border-red-200 px-2.5 py-2 rounded-lg transition-colors cursor-pointer"
+                            >
+                              <Eraser className="w-3.5 h-3.5" />
+                              <span>Quitar</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="flex items-center justify-end gap-2 pt-2">
@@ -666,7 +863,6 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        const isCoordinatorEdit = true;
                         if (!workerFormData.nombre.trim() || !workerFormData.cedula.trim()) {
                           return;
                         }
@@ -679,23 +875,32 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
                           };
                           const updated = [...staffList, newMember];
                           onUpdateStaffList(updated);
+                          if (onSaveWorkerSignature && newMember.firmaUrl) {
+                            onSaveWorkerSignature(newMember.id, newMember.firmaUrl);
+                          }
                           setIsAddingNew(false);
                         } else if (editingId) {
                           const updatedList = staffList.map((item) =>
                             item.id === editingId ? { ...item, ...workerFormData, rol: "coordinador_sst" } : item
                           );
                           onUpdateStaffList(updatedList);
-                          
+
+                          if (onSaveWorkerSignature && workerFormData.firmaUrl !== undefined) {
+                            onSaveWorkerSignature(editingId, workerFormData.firmaUrl);
+                          }
+
                           if (
                             onUpdateSupervisor &&
                             supervisor &&
-                            (supervisor.cedula === staffList.find((s) => s.id === editingId)?.cedula)
+                            (supervisor.cedula === staffList.find((s) => s.id === editingId)?.cedula ||
+                              supervisor.nombre === staffList.find((s) => s.id === editingId)?.nombre)
                           ) {
                             onUpdateSupervisor({
                               ...supervisor,
                               nombre: workerFormData.nombre,
                               cedula: workerFormData.cedula,
                               cargo: workerFormData.cargo || supervisor.cargo,
+                              firmaUrl: workerFormData.firmaUrl || supervisor.firmaUrl,
                             });
                           }
                           setEditingId(null);
@@ -727,6 +932,7 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
                         cargo: "Coordinador SST",
                         arl: "POSITIVA",
                         rol: "coordinador_sst",
+                        firmaUrl: "",
                       });
                     }}
                     className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-lg transition-colors"
@@ -751,6 +957,8 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
                         supervisor &&
                         (supervisor.cedula.trim() === member.cedula.trim() ||
                           supervisor.nombre.trim() === member.nombre.trim());
+                      const coordSignature =
+                        member.firmaUrl || (isSelected ? supervisor?.firmaUrl : undefined) || activeWorkerSignatures?.[member.id];
 
                       return (
                         <div
@@ -792,6 +1000,12 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
                                     Coordinador Actual
                                   </span>
                                 )}
+                                {coordSignature && (
+                                  <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.2 rounded flex items-center gap-1 shrink-0">
+                                    <PenTool className="w-2.5 h-2.5" />
+                                    Firma guardada
+                                  </span>
+                                )}
                               </div>
                               <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-slate-500 mt-0.5">
                                 <span>CC: <strong className="text-slate-700 font-mono">{member.cedula}</strong></span>
@@ -803,6 +1017,27 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
 
                           {/* Actions */}
                           <div className="flex items-center gap-1.5 justify-end shrink-0 sm:ml-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSignaturePrompt({
+                                  mode: "member",
+                                  memberId: member.id,
+                                  name: member.nombre,
+                                  initialSignature: coordSignature,
+                                  isCoordinator: true,
+                                })
+                              }
+                              className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md border transition-colors cursor-pointer ${
+                                coordSignature
+                                  ? "text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200"
+                                  : "text-slate-700 bg-slate-100 hover:bg-slate-200 border-slate-300"
+                              }`}
+                              title={coordSignature ? "Ver o actualizar firma del coordinador" : "Capturar y guardar firma del coordinador"}
+                            >
+                              <PenTool className="w-3 h-3" />
+                              <span>{coordSignature ? "Firma" : "Firmar"}</span>
+                            </button>
                             <button
                               type="button"
                               onClick={() => handleStartEdit(member)}
@@ -855,6 +1090,20 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Modal de Firma Digital integrado */}
+      <SignatureModal
+        isOpen={signaturePrompt !== null}
+        onClose={() => setSignaturePrompt(null)}
+        onSave={handleSaveSignatureFromModal}
+        title={
+          signaturePrompt?.isCoordinator
+            ? `Firma Guardada - Coordinador SST: ${signaturePrompt.name}`
+            : `Firma Guardada - Trabajador: ${signaturePrompt?.name || ""}`
+        }
+        subtitle="Esta firma quedará guardada en el directorio de personal para futuros ATS"
+        initialSignature={signaturePrompt?.initialSignature}
+      />
     </div>
   );
 };

@@ -20,6 +20,7 @@ import {
   KeyRound,
   Loader2,
 } from "lucide-react";
+import { PWAInstallButton, PWAInstallModal } from "./PWAInstallButton";
 
 interface AuthContextType {
   currentUser: User | null;
@@ -54,6 +55,7 @@ export const AccessGuard: React.FC<AccessGuardProps> = ({ children }) => {
   const [isSubmittingReset, setIsSubmittingReset] = useState(false);
   const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null);
   const [resetErrorMessage, setResetErrorMessage] = useState<string | null>(null);
+  const [isPWAModalOpen, setIsPWAModalOpen] = useState(false);
 
   // Escuchar cambios de estado en Firebase Authentication
   useEffect(() => {
@@ -359,13 +361,22 @@ export const AccessGuard: React.FC<AccessGuardProps> = ({ children }) => {
           </form>
         )}
 
-        {/* PIE DE PÁGINA INFORMATIVO */}
-        <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 text-center">
+        {/* PIE DE PÁGINA INFORMATIVO E INSTALACIÓN PWA */}
+        <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 text-center space-y-3">
+          <PWAInstallButton
+            variant="login-footer"
+            onOpenGuide={() => setIsPWAModalOpen(true)}
+          />
           <p className="text-[11px] text-slate-500 font-medium">
             Acceso seguro autenticado mediante Firebase Authentication. Solo personal autorizado con cuenta previamente registrada.
           </p>
         </div>
       </div>
+
+      <PWAInstallModal
+        isOpen={isPWAModalOpen}
+        onClose={() => setIsPWAModalOpen(false)}
+      />
     </div>
   );
 };

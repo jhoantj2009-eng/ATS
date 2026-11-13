@@ -53,19 +53,30 @@ async function captureIsolatedPageElement(
 ): Promise<HTMLCanvasElement> {
   await waitForImagesToLoad(sourceElement);
 
-  // 1. Crear un contenedor Sandbox independiente en la raíz del documento
-  const sandbox = document.createElement("div");
-  sandbox.id = "ats-pdf-sandbox-container";
-  sandbox.style.cssText = `
+  // 1. Crear un host 0x0 oculto y un Sandbox interno de 816px para no alterar ni desbordar el viewport en iPhone
+  const sandboxHost = document.createElement("div");
+  sandboxHost.id = "ats-pdf-sandbox-host";
+  sandboxHost.style.cssText = `
     position: fixed !important;
     top: 0 !important;
     left: 0 !important;
+    width: 0 !important;
+    height: 0 !important;
+    overflow: hidden !important;
+    pointer-events: none !important;
+    z-index: -1 !important;
+    opacity: 0 !important;
+  `;
+
+  const sandbox = document.createElement("div");
+  sandbox.id = "ats-pdf-sandbox-container";
+  sandbox.style.cssText = `
+    position: relative !important;
     width: 816px !important;
     min-width: 816px !important;
     max-width: 816px !important;
     min-height: 1056px !important;
     height: auto !important;
-    z-index: 999999 !important;
     background-color: #ffffff !important;
     margin: 0 !important;
     padding: 0 !important;
@@ -133,7 +144,8 @@ async function captureIsolatedPageElement(
   });
 
   sandbox.appendChild(clone);
-  document.body.appendChild(sandbox);
+  sandboxHost.appendChild(sandbox);
+  document.body.appendChild(sandboxHost);
 
   try {
     // Esperar un ciclo de renderizado para estabilización completa
@@ -159,7 +171,7 @@ async function captureIsolatedPageElement(
       x: 0,
       y: 0,
       onclone: (clonedDoc) => {
-        // En el documento clonado por html2canvas, fijar dimensiones a 816px
+        // En el documento clonado por html2canvas, fijar dimensiones a 816px sin afectar la pantalla del iPhone
         clonedDoc.documentElement.style.width = "816px";
         clonedDoc.documentElement.style.minWidth = "816px";
         clonedDoc.documentElement.style.overflow = "visible";
@@ -169,6 +181,16 @@ async function captureIsolatedPageElement(
         clonedDoc.body.style.minWidth = "816px";
         clonedDoc.body.style.overflow = "visible";
         clonedDoc.body.style.webkitTextSizeAdjust = "100%";
+
+        const clonedHost = clonedDoc.getElementById("ats-pdf-sandbox-host");
+        if (clonedHost) {
+          clonedHost.style.position = "static";
+          clonedHost.style.width = "816px";
+          clonedHost.style.height = "auto";
+          clonedHost.style.overflow = "visible";
+          clonedHost.style.opacity = "1";
+          clonedHost.style.zIndex = "1";
+        }
 
         const clonedSandbox = clonedDoc.getElementById("ats-pdf-sandbox-container");
         if (clonedSandbox) {
@@ -187,9 +209,9 @@ async function captureIsolatedPageElement(
 
     return canvas;
   } finally {
-    // Siempre remover el sandbox del DOM
-    if (document.body.contains(sandbox)) {
-      document.body.removeChild(sandbox);
+    // Siempre remover el host sandbox del DOM
+    if (document.body.contains(sandboxHost)) {
+      document.body.removeChild(sandboxHost);
     }
   }
 }
@@ -221,16 +243,29 @@ export async function generatePDFDocument(
     document.getElementById("ats-export-page-2") ||
     document.getElementById("ats-export-target-p2");
 
+  const addCanvasPageToPdf = (canvas: HTMLCanvasElement) => {
+    const imgData = canvas.toDataURL("image/jpeg", 0.98);
+    const canvasAspect = canvas.height / Math.max(1, canvas.width);
+    const letterAspect = pdfHeight / pdfWidth;
+
+    if (canvasAspect <= letterAspect * 1.01) {
+      pdf.addImage(imgData, "JPEG", 0, 0, pdfWidth, pdfHeight, undefined, "FAST");
+    } else {
+      // Ajustar proporcionalmente dentro de la hoja Carta sin deformar ni recortar contenido
+      const fittedWidth = pdfHeight / canvasAspect;
+      const offsetX = Math.max(0, (pdfWidth - fittedWidth) / 2);
+      pdf.addImage(imgData, "JPEG", offsetX, 0, fittedWidth, pdfHeight, undefined, "FAST");
+    }
+  };
+
   if (page1Isolated && page2Isolated) {
     // Renderizado aislado página por página
     const canvas1 = await captureIsolatedPageElement(page1Isolated);
-    const imgData1 = canvas1.toDataURL("image/jpeg", 0.98);
-    pdf.addImage(imgData1, "JPEG", 0, 0, pdfWidth, pdfHeight, undefined, "FAST");
+    addCanvasPageToPdf(canvas1);
 
     pdf.addPage("letter", "portrait");
     const canvas2 = await captureIsolatedPageElement(page2Isolated);
-    const imgData2 = canvas2.toDataURL("image/jpeg", 0.98);
-    pdf.addImage(imgData2, "JPEG", 0, 0, pdfWidth, pdfHeight, undefined, "FAST");
+    addCanvasPageToPdf(canvas2);
   } else {
     // Fallback con contenedor unificado
     const container =
@@ -250,13 +285,11 @@ export async function generatePDFDocument(
           pdf.addPage("letter", "portrait");
         }
         const canvas = await captureIsolatedPageElement(pages[i]);
-        const imgData = canvas.toDataURL("image/jpeg", 0.98);
-        pdf.addImage(imgData, "JPEG", 0, 0, pdfWidth, pdfHeight, undefined, "FAST");
+        addCanvasPageToPdf(canvas);
       }
     } else {
       const canvas = await captureIsolatedPageElement(container);
-      const imgData = canvas.toDataURL("image/jpeg", 0.98);
-      pdf.addImage(imgData, "JPEG", 0, 0, pdfWidth, pdfHeight, undefined, "FAST");
+      addCanvasPageToPdf(canvas);
     }
   }
 

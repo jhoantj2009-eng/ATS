@@ -312,11 +312,11 @@ export const ATSPrintFormat: React.FC<ATSPrintFormatProps> = ({
               <tr>
                 <td className="ats-header-cell-left" style={{ padding: "1.5px 3px" }}>TIPO DE TRABAJO:</td>
                 <td className="font-semibold uppercase" style={{ padding: "1.5px 3px", overflowWrap: "break-word", wordBreak: "break-word", hyphens: "auto", lineHeight: 1.12 }}>
-                  {formData.tipoTrabajo || "Trabajo en Alturas / Mantenimiento"}
+                  {formData.tipoTrabajo || "—"}
                 </td>
                 <td className="ats-header-cell-left" style={{ padding: "1.5px 3px" }}>ALTURA APROXIMADA:</td>
                 <td className="font-bold text-center" style={{ padding: "1.5px 3px", overflowWrap: "break-word", wordBreak: "break-word", hyphens: "auto", lineHeight: 1.12 }}>
-                  {formData.alturaAproximada || "12 MTS"}
+                  {formData.alturaAproximada || "—"}
                 </td>
               </tr>
               <tr>

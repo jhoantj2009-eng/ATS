@@ -6,8 +6,10 @@ import path from 'path'
 export default defineConfig(({ command }) => {
   const isGitHubPages = command === 'build' && process.env.GITHUB_ACTIONS === 'true';
 
+  const basePath = isGitHubPages ? '/ATS/' : '/';
+
   return {
-    base: isGitHubPages ? '/ATS/' : '/',
+    base: basePath,
     plugins: [
       react(),
       tailwindcss(),
@@ -23,20 +25,51 @@ export default defineConfig(({ command }) => {
           'apple-touch-icon.png',
         ],
         manifest: {
+          id: basePath,
           name: 'Sistema ATS y Permisos OHS',
           short_name: 'ATS OHS',
           description: 'Generador de ATS, Permisos de Alturas y Riesgo Eléctrico',
+          lang: 'es-CO',
           theme_color: '#0f172a',
           background_color: '#0f172a',
           display: 'standalone',
+          orientation: 'any',
+          start_url: basePath,
+          scope: basePath,
+          prefer_related_applications: false,
+          categories: ['business', 'productivity', 'utilities'],
           icons: [
-            { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
-            { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' },
-            { src: 'pwa-maskable-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
-          ]
+            {
+              src: 'pwa-192x192.png',
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'any',
+            },
+            {
+              src: 'pwa-512x512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any',
+            },
+            {
+              src: 'pwa-maskable-512x512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'maskable',
+            },
+            {
+              src: 'icon.svg',
+              sizes: 'any',
+              type: 'image/svg+xml',
+              purpose: 'any',
+            },
+          ],
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          cleanupOutdatedCaches: true,
+          clientsClaim: true,
+          skipWaiting: true,
           runtimeCaching: [
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,

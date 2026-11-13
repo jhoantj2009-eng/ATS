@@ -450,7 +450,9 @@ app.post("/api/generate-ats", async (req, res) => {
   const { tareaGeneral, tipoTrabajo, detalleLabor, altura, personal } = req.body || {};
 
   const cleanTask = (tareaGeneral || "").trim();
-  const cacheKey = `ats_exact_${cleanTask.toLowerCase()}`;
+  const cleanAltura = typeof altura === "string" ? altura.trim() : "";
+  const cleanTipo = typeof tipoTrabajo === "string" ? tipoTrabajo.trim() : "";
+  const cacheKey = `ats_exact_${cleanTask.toLowerCase()}__${cleanAltura.toLowerCase()}__${cleanTipo.toLowerCase()}`;
   if (cleanTask.length > 3 && atsFastCache.has(cacheKey)) {
     console.log(`[ATS Cache] Respuesta instantánea (<1ms) para: "${cleanTask}"`);
     const cachedData = atsFastCache.get(cacheKey);
@@ -569,6 +571,12 @@ INSTRUCCIONES ESTRICTAS DE ANÁLISIS:
 
     try {
       const { data, modelUsed } = await generateATSWithGemini(ai, prompt, config);
+      if (cleanAltura) {
+        data.alturaAproximada = cleanAltura;
+      }
+      if (cleanTipo) {
+        data.tipoTrabajo = cleanTipo;
+      }
       if (cleanTask.length > 3 && data && data.pasos && data.pasos.length > 0) {
         atsFastCache.set(cacheKey, { ...data, modelUsed });
       }
