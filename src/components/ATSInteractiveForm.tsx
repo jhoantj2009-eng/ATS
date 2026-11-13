@@ -653,20 +653,6 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
             </div>
           </div>
 
-          {/* DETALLE OPERATIVO DE LA LABOR */}
-          <div>
-            <label className="block text-sm sm:text-base font-bold text-slate-900 mb-1.5">
-              Detalle Operativo de la Labor (Deducido por la IA o editable)
-            </label>
-            <textarea
-              rows={2}
-              value={formData.detalleLabor}
-              onChange={(e) => updateField("detalleLabor", e.target.value)}
-              placeholder="Descripción técnica operativa y alcance deducido por la IA..."
-              className="w-full min-h-[96px] text-base p-3.5 rounded-xl border-2 border-slate-300 bg-white font-medium text-slate-900 focus:border-slate-900 focus:ring-2 focus:ring-slate-900/15 focus:outline-none leading-relaxed"
-            />
-          </div>
-
           {/* VIGENCIA DEL PERMISO */}
           <div className="p-4 sm:p-5 bg-slate-50 border-2 border-slate-200 rounded-2xl space-y-3">
             <h4 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide">
