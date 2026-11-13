@@ -84,15 +84,13 @@ export default defineConfig({
           ],
         },
         devOptions: {
-          enabled: true,
-          type: 'module',
-        },
-      }),
-    ],
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '.'),
-      },
+      enabled: true,
+      type: 'module',
     },
-  }
+  }),
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, '.'),
+    },
+  },
 })
