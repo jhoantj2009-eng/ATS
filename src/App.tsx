@@ -971,8 +971,8 @@ function ATSAppContent() {
       <header className="no-print sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b-2 border-slate-200 shadow-xs">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 h-16 sm:h-18 flex items-center justify-between gap-2 sm:gap-4">
           
-          {/* LADO IZQUIERDO: Logo DCM + Título + Estado Sincronización y Red */}
-          <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
+          {/* LADO IZQUIERDO: Logo DCM */}
+          <div className="flex items-center shrink-0">
             {/* Logo Oficial DCM Fijo */}
             <button
               type="button"
@@ -990,54 +990,6 @@ function ATSAppContent() {
                 <Edit3 className="w-2.5 h-2.5" />
               </span>
             </button>
-
-            {/* Título & Indicadores discretos siempre visibles */}
-            <div className="flex flex-col min-w-0 justify-center">
-              <h1 className="text-sm sm:text-base font-extrabold text-slate-900 tracking-tight truncate leading-tight">
-                ATS Seguridad Laboral
-              </h1>
-              
-              {/* Indicador de red + auto-guardado en una sola línea compacta */}
-              <div className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
-                {/* Conexión */}
-                <span
-                  className="inline-flex items-center gap-1"
-                  title={isOnline ? "Conectado al servidor central" : "Operando sin conexión (IndexedDB)"}
-                >
-                  <span
-                    className={`inline-block w-2 h-2 rounded-full ${
-                      isOnline ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
-                    }`}
-                  />
-                  <span className="font-semibold text-slate-700">
-                    {isOnline ? "En línea" : "Sin conexión"}
-                  </span>
-                </span>
-
-                <span className="text-slate-300">·</span>
-
-                {/* Auto-guardado discreto */}
-                <button
-                  type="button"
-                  onClick={handleManualSave}
-                  className="hover:underline text-slate-500 hover:text-slate-800 truncate"
-                  title="Guardado continuo en memoria local. Clic para forzar guardado."
-                >
-                  {saveStatus === "saving" ? "Guardando..." : `Guardado ${lastSavedTime}`}
-                </button>
-
-                {/* Pendientes si hay */}
-                {pendingCount > 0 && (
-                  <span
-                    onClick={() => isOnline && syncNow()}
-                    className="hidden sm:inline-flex items-center text-[10px] font-bold text-amber-900 bg-amber-100 border border-amber-300 px-1.5 py-0.2 rounded cursor-pointer"
-                    title="Registros pendientes de sincronizar. Clic para sincronizar."
-                  >
-                    {pendingCount} pend.
-                  </span>
-                )}
-              </div>
-            </div>
           </div>
 
           {/* LADO DERECHO: SOLO DOS BOTONES PRINCIPALES + MENÚ DESPLEGABLE */}
@@ -1083,12 +1035,59 @@ function ATSAppContent() {
               {/* CONTENIDO DEL MENÚ DESPLEGABLE */}
               {isNavMenuOpen && (
                 <div
-                  className="absolute right-0 mt-2 w-72 sm:w-80 bg-white rounded-2xl shadow-2xl border-2 border-slate-200 py-2 z-50 animate-in fade-in zoom-in-95 duration-150 divide-y divide-slate-100"
+                  className="absolute right-0 mt-2 w-72 sm:w-80 max-h-[calc(100vh-5rem)] overflow-y-auto bg-white rounded-2xl shadow-2xl border-2 border-slate-200 py-2 z-50 animate-in fade-in zoom-in-95 duration-150 divide-y divide-slate-100"
                   onClick={() => setIsNavMenuOpen(false)}
                 >
+                  {/* Estado ATS Seguridad Laboral (En línea / Guardado / Sincronización) */}
+                  <div
+                    className="px-4 py-3 bg-slate-50/90 flex flex-col gap-1"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <h1 className="text-sm font-extrabold text-slate-900 tracking-tight leading-tight">
+                      ATS Seguridad Laboral
+                    </h1>
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-600 font-medium">
+                      <span
+                        className="inline-flex items-center gap-1"
+                        title={isOnline ? "Conectado al servidor central" : "Operando sin conexión (IndexedDB)"}
+                      >
+                        <span
+                          className={`inline-block w-2 h-2 rounded-full ${
+                            isOnline ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
+                          }`}
+                        />
+                        <span className="font-semibold text-slate-700">
+                          {isOnline ? "En línea" : "Sin conexión"}
+                        </span>
+                      </span>
+
+                      <span className="text-slate-300">·</span>
+
+                      <button
+                        type="button"
+                        onClick={handleManualSave}
+                        className="hover:underline text-slate-500 hover:text-slate-800 cursor-pointer"
+                        title="Guardado continuo en memoria local. Clic para forzar guardado."
+                      >
+                        {saveStatus === "saving" ? "Guardando..." : `Guardado ${lastSavedTime}`}
+                      </button>
+
+                      {pendingCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => isOnline && syncNow()}
+                          className="inline-flex items-center text-[10px] font-bold text-amber-900 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded cursor-pointer"
+                          title="Registros pendientes de sincronizar. Clic para sincronizar."
+                        >
+                          {pendingCount} pend.
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
                   {/* Usuario autenticado */}
                   {currentUser && (
-                    <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-2">
+                    <div className="px-4 py-3 bg-slate-50 flex items-center justify-between gap-2">
                       <div className="min-w-0">
                         <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Usuario Conectado</p>
                         <p className="text-xs font-semibold text-slate-800 truncate" title={currentUser.email || ""}>
