@@ -4,9 +4,10 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
 
-export default defineConfig(() => {
-  return {
-    base: '/ATS/',
+export default defineConfig({
+  base: '/ATS/',
+  // ...
+})
     plugins: [
       react(),
       tailwindcss(),
