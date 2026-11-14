@@ -776,6 +776,48 @@ function ATSAppContent() {
     }
   };
 
+  const updateStaffListImmediately = useCallback(
+    (updater: React.SetStateAction<PersonalMember[]>) => {
+      setStaffList((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        latestStateRef.current.staffList = next;
+        try {
+          localStorage.setItem("ats_staff_list", JSON.stringify(next));
+        } catch {}
+        saveAppSettingsToIDB("ats_draft_backup", {
+          formData: latestStateRef.current.formData,
+          empresa: latestStateRef.current.empresa,
+          staffList: next,
+          updatedAt: new Date().toISOString(),
+          updatedAtMs: Date.now(),
+        }).catch(() => {});
+        return next;
+      });
+    },
+    []
+  );
+
+  const handleSyncWorkerToStaff = useCallback(
+    (worker: PersonalMember) => {
+      updateStaffListImmediately((prev) => {
+        const exists = prev.some((m) => m.id === worker.id);
+        if (exists) {
+          return prev.map((m) =>
+            m.id === worker.id
+              ? {
+                  ...m,
+                  ...worker,
+                  firmaUrl: worker.firmaUrl !== undefined ? worker.firmaUrl : m.firmaUrl,
+                }
+              : m
+          );
+        }
+        return [...prev, worker];
+      });
+    },
+    [updateStaffListImmediately]
+  );
+
   // Signature save handler
   const handleSaveSignature = (dataUrl: string) => {
     if (!signTarget) return;
@@ -788,13 +830,24 @@ function ATSAppContent() {
           ...prev.firmasTrabajadores,
           [targetId]: dataUrl,
         },
+        trabajadores: prev.trabajadores.map((w) =>
+          w.id === targetId ? { ...w, firmaUrl: dataUrl } : w
+        ),
       }));
       // También guardar la firma en el directorio permanente de personal
-      setStaffList((prev) =>
-        prev.map((member) =>
-          member.id === targetId ? { ...member, firmaUrl: dataUrl } : member
-        )
-      );
+      updateStaffListImmediately((prev) => {
+        const exists = prev.some((m) => m.id === targetId);
+        if (exists) {
+          return prev.map((member) =>
+            member.id === targetId ? { ...member, firmaUrl: dataUrl } : member
+          );
+        }
+        const activeMatch = latestStateRef.current.formData.trabajadores.find((w) => w.id === targetId);
+        if (activeMatch) {
+          return [...prev, { ...activeMatch, firmaUrl: dataUrl }];
+        }
+        return prev;
+      });
       showToast(`Firma registrada y guardada para ${signTarget.name}`);
     } else if (signTarget.type === "supervisor") {
       handleFormDataChange((prev) => ({
@@ -805,7 +858,7 @@ function ATSAppContent() {
         },
       }));
       // También guardar la firma en el coordinador SST correspondiente dentro del directorio
-      setStaffList((prev) =>
+      updateStaffListImmediately((prev) =>
         prev.map((member) =>
           member.cedula.trim() === formData.supervisor.cedula.trim() ||
           member.nombre.trim() === formData.supervisor.nombre.trim()
@@ -831,12 +884,16 @@ function ATSAppContent() {
         trabajadores: prev.trabajadores.filter((w) => w.id !== member.id),
       }));
     } else {
+      const savedSig = member.firmaUrl || staffList.find((s) => s.id === member.id)?.firmaUrl || "";
       handleFormDataChange((prev) => ({
         ...prev,
-        trabajadores: [...prev.trabajadores, member],
+        trabajadores: [
+          ...prev.trabajadores,
+          savedSig ? { ...member, firmaUrl: savedSig } : member,
+        ],
         firmasTrabajadores:
-          member.firmaUrl && !prev.firmasTrabajadores[member.id]
-            ? { ...prev.firmasTrabajadores, [member.id]: member.firmaUrl }
+          savedSig && !prev.firmasTrabajadores[member.id]
+            ? { ...prev.firmasTrabajadores, [member.id]: savedSig }
             : prev.firmasTrabajadores,
       }));
     }
@@ -966,9 +1023,9 @@ function ATSAppContent() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col antialiased overflow-x-hidden print:overflow-visible">
+    <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col antialiased overflow-x-clip print:overflow-visible">
       {/* APP TOP NAVIGATION BAR (Hidden in print) */}
-      <header className="no-print sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b-2 border-slate-200 shadow-xs">
+      <header className="no-print sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b-2 border-slate-200 shadow-xs pt-[env(safe-area-inset-top)] ios-safe-header">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 h-16 sm:h-18 flex items-center justify-between gap-2 sm:gap-4">
           
           {/* LADO IZQUIERDO: Logo DCM */}
@@ -1017,11 +1074,11 @@ function ATSAppContent() {
             </button>
 
             {/* MENÚ DESPLEGABLE (3 Puntos para todas las opciones secundarias) */}
-            <div className="relative">
+            <div className="relative z-50">
               <button
                 type="button"
                 onClick={() => setIsNavMenuOpen((prev) => !prev)}
-                className={`p-2 sm:p-2.5 rounded-xl border-2 transition-all cursor-pointer flex items-center justify-center ${
+                className={`relative z-50 p-2 sm:p-2.5 rounded-xl border-2 transition-all cursor-pointer flex items-center justify-center ${
                   isNavMenuOpen
                     ? "bg-slate-900 text-white border-slate-900 shadow-sm"
                     : "bg-white hover:bg-slate-100 text-slate-700 border-slate-300 shadow-2xs"
@@ -1035,7 +1092,7 @@ function ATSAppContent() {
               {/* CONTENIDO DEL MENÚ DESPLEGABLE */}
               {isNavMenuOpen && (
                 <div
-                  className="absolute right-0 mt-2 w-72 sm:w-80 max-h-[calc(100vh-5rem)] overflow-y-auto bg-white rounded-2xl shadow-2xl border-2 border-slate-200 py-2 z-50 animate-in fade-in zoom-in-95 duration-150 divide-y divide-slate-100"
+                  className="absolute right-0 mt-2 w-72 sm:w-80 max-h-[calc(100dvh-6rem)] overflow-y-auto bg-white rounded-2xl shadow-2xl border-2 border-slate-200 py-2 z-50 animate-in fade-in zoom-in-95 duration-150 divide-y divide-slate-100"
                   onClick={() => setIsNavMenuOpen(false)}
                 >
                   {/* Estado ATS Seguridad Laboral (En línea / Guardado / Sincronización) */}
@@ -1226,7 +1283,7 @@ function ATSAppContent() {
 
       {/* TOAST NOTIFICATION */}
       {toastMessage && (
-        <div className="no-print fixed bottom-6 right-6 z-50 flex items-center gap-2.5 bg-slate-900 text-white text-xs font-medium px-4 py-3 rounded-xl shadow-xl border border-slate-700 animate-in fade-in slide-in-from-bottom-2">
+        <div className="no-print fixed bottom-20 sm:bottom-6 right-4 sm:right-6 left-4 sm:left-auto z-[70] flex items-center gap-2.5 bg-slate-900 text-white text-xs font-medium px-4 py-3 rounded-xl shadow-xl border border-slate-700 animate-in fade-in slide-in-from-bottom-2">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{toastMessage}</span>
         </div>
@@ -1260,6 +1317,7 @@ function ATSAppContent() {
                 }
                 await syncCompanyTemplateToServer(updated);
               }}
+              onSyncWorkerToStaff={handleSyncWorkerToStaff}
             />
 
 
@@ -1454,9 +1512,12 @@ function ATSAppContent() {
       {/* STAFF MANAGEMENT MODAL */}
       <PersonalManagerModal
         isOpen={isStaffModalOpen}
-        onClose={() => setIsStaffModalOpen(false)}
+        onClose={() => {
+          setIsStaffModalOpen(false);
+          showToast("Personal y firmas guardados en el ATS");
+        }}
         staffList={staffList}
-        onUpdateStaffList={setStaffList}
+        onUpdateStaffList={updateStaffListImmediately}
         activeWorkers={formData.trabajadores}
         onToggleActiveWorker={handleToggleActiveWorker}
         supervisor={formData.supervisor}
@@ -1467,14 +1528,20 @@ function ATSAppContent() {
         onUpdateActiveWorkers={(updatedWorkers) => {
           handleFormDataChange((prev) => {
             const nextFirmas = { ...prev.firmasTrabajadores };
-            for (const w of updatedWorkers) {
-              if (w.firmaUrl && !nextFirmas[w.id]) {
-                nextFirmas[w.id] = w.firmaUrl;
+            const syncedWorkers = updatedWorkers.map((w) => {
+              const staffMatch = latestStateRef.current.staffList.find((s) => s.id === w.id);
+              const resolvedFirma =
+                w.firmaUrl !== undefined
+                  ? w.firmaUrl
+                  : staffMatch?.firmaUrl || nextFirmas[w.id] || "";
+              if (resolvedFirma) {
+                nextFirmas[w.id] = resolvedFirma;
               }
-            }
+              return resolvedFirma ? { ...w, firmaUrl: resolvedFirma } : w;
+            });
             return {
               ...prev,
-              trabajadores: updatedWorkers,
+              trabajadores: syncedWorkers,
               firmasTrabajadores: nextFirmas,
             };
           });
@@ -1490,6 +1557,9 @@ function ATSAppContent() {
             }
             return {
               ...prev,
+              trabajadores: prev.trabajadores.map((w) =>
+                w.id === workerId ? { ...w, firmaUrl: signatureDataUrl } : w
+              ),
               firmasTrabajadores: nextFirmas,
             };
           });

@@ -65,6 +65,7 @@ interface ATSInteractiveFormProps {
   lastSavedTime?: string;
   onManualSave?: () => void;
   onUpdateEmpresa?: (updated: EmpresaConfig) => void;
+  onSyncWorkerToStaff?: (worker: PersonalMember) => void;
 }
 
 export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
@@ -85,6 +86,7 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
   lastSavedTime = "reciente",
   onManualSave,
   onUpdateEmpresa,
+  onSyncWorkerToStaff,
 }) => {
   const [activeSection, setActiveSection] = useState<"cabecera" | "matriz" | "epp" | "area" | "firmas">("cabecera");
   const [isOptimizingLogo, setIsOptimizingLogo] = useState(false);
@@ -863,8 +865,20 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      const missing = staffList.filter((s) => !formData.trabajadores.some((w) => w.id === s.id));
-                      updateField("trabajadores", [...formData.trabajadores, ...missing]);
+                      onChangeFormData((prev) => {
+                        const missing = staffList.filter((s) => !prev.trabajadores.some((w) => w.id === s.id));
+                        const nextFirmas = { ...prev.firmasTrabajadores };
+                        missing.forEach((m) => {
+                          if (m.firmaUrl && !nextFirmas[m.id]) {
+                            nextFirmas[m.id] = m.firmaUrl;
+                          }
+                        });
+                        return {
+                          ...prev,
+                          trabajadores: [...prev.trabajadores, ...missing],
+                          firmasTrabajadores: nextFirmas,
+                        };
+                      });
                     }}
                     className="inline-flex items-center gap-1.5 min-h-[44px] text-xs sm:text-sm font-bold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border-2 border-emerald-400 px-3.5 py-2 rounded-xl transition-all cursor-pointer shadow-2xs"
                     title="Incluir a todos los trabajadores registrados en el directorio"
@@ -884,8 +898,12 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                       cargo: "Técnico Especialista en Alturas",
                       arl: "SURA ARL",
                       rol: "trabajador",
+                      firmaUrl: "",
                     };
-                    updateField("trabajadores", [...formData.trabajadores, newWorker]);
+                    onChangeFormData((prev) => ({
+                      ...prev,
+                      trabajadores: [...prev.trabajadores, newWorker],
+                    }));
                   }}
                   className="inline-flex items-center gap-1.5 min-h-[44px] text-xs sm:text-sm font-bold text-slate-900 bg-slate-100 hover:bg-slate-200 border-2 border-slate-300 px-3.5 py-2 rounded-xl transition-all cursor-pointer active:scale-98"
                 >
@@ -906,19 +924,54 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
 
             {/* VISTA MÓVIL: TARJETAS GRANDES CON CAMPOS DE ALTO CONTRASTE */}
             <div className="sm:hidden space-y-3">
-              {formData.trabajadores.map((worker, index) => (
+              {formData.trabajadores.map((worker, index) => {
+                const hasSignature = Boolean(formData.firmasTrabajadores[worker.id] || worker.firmaUrl);
+                const updateWorkerField = (patch: Partial<PersonalMember>) => {
+                  onChangeFormData((prev) => {
+                    const updated = [...prev.trabajadores];
+                    if (!updated[index]) return prev;
+                    const nextWorker = { ...updated[index], ...patch };
+                    updated[index] = nextWorker;
+                    if (onSyncWorkerToStaff && (nextWorker.nombre.trim() || nextWorker.cedula.trim())) {
+                      onSyncWorkerToStaff(nextWorker);
+                    }
+                    return { ...prev, trabajadores: updated };
+                  });
+                };
+
+                return (
                 <div
                   key={worker.id || index}
                   className="p-4 rounded-2xl border-2 border-slate-300 bg-white shadow-2xs space-y-3"
                 >
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 gap-2">
                     <span className="text-xs font-extrabold uppercase tracking-wider text-slate-600">
                       Ejecutor #{index + 1}
                     </span>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onOpenSignModal({
+                            type: "worker",
+                            id: worker.id,
+                            name: worker.nombre || `Trabajador #${index + 1}`,
+                          })
+                        }
+                        className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-lg border transition-colors cursor-pointer ${
+                          hasSignature
+                            ? "bg-blue-50 text-blue-800 border-blue-300"
+                            : "bg-amber-50 text-amber-900 border-amber-300"
+                        }`}
+                        title={hasSignature ? "Ver o actualizar firma" : "Firmar en pantalla"}
+                      >
+                        <PenTool className="w-3.5 h-3.5" />
+                        <span>{hasSignature ? "Firma ✓" : "Firmar"}</span>
+                      </button>
                       <button
                         type="button"
                         onClick={() => {
+                          const staffMatch = staffList.find((s) => s.id === worker.id);
                           updateField("supervisor", {
                             ...formData.supervisor,
                             nombre: worker.nombre,
@@ -926,9 +979,14 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                             cargo: worker.cargo.includes("SST")
                               ? worker.cargo
                               : `Coordinador SST / ${worker.cargo}`,
+                            firmaUrl:
+                              formData.firmasTrabajadores[worker.id] ||
+                              worker.firmaUrl ||
+                              staffMatch?.firmaUrl ||
+                              formData.supervisor.firmaUrl,
                           });
                         }}
-                        className="p-2 text-slate-700 hover:text-emerald-800 bg-slate-100 hover:bg-emerald-50 rounded-lg border border-slate-300 transition-colors"
+                        className="p-2 text-slate-700 hover:text-emerald-800 bg-slate-100 hover:bg-emerald-50 rounded-lg border border-slate-300 transition-colors cursor-pointer"
                         title="Asignar como Coordinador SST"
                       >
                         <Award className="w-4 h-4 text-emerald-700" />
@@ -937,10 +995,12 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                         type="button"
                         onClick={() => {
                           if (formData.trabajadores.length <= 1) return;
-                          const updated = formData.trabajadores.filter((_, i) => i !== index);
-                          updateField("trabajadores", updated);
+                          onChangeFormData((prev) => ({
+                            ...prev,
+                            trabajadores: prev.trabajadores.filter((_, i) => i !== index),
+                          }));
                         }}
-                        className="p-2 text-slate-500 hover:text-red-700 bg-slate-100 hover:bg-red-50 rounded-lg border border-slate-300 transition-colors"
+                        className="p-2 text-slate-500 hover:text-red-700 bg-slate-100 hover:bg-red-50 rounded-lg border border-slate-300 transition-colors cursor-pointer"
                         title="Eliminar de la cuadrilla"
                       >
                         <Trash2 className="w-4 h-4 text-red-600" />
@@ -955,11 +1015,7 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                     <input
                       type="text"
                       value={worker.nombre}
-                      onChange={(e) => {
-                        const updated = [...formData.trabajadores];
-                        updated[index] = { ...updated[index], nombre: e.target.value.toUpperCase() };
-                        updateField("trabajadores", updated);
-                      }}
+                      onChange={(e) => updateWorkerField({ nombre: e.target.value.toUpperCase() })}
                       placeholder="NOMBRES COMPLETOS"
                       className="w-full min-h-[48px] text-base px-3.5 py-2.5 rounded-xl border-2 border-slate-300 bg-white font-bold uppercase text-slate-900 focus:border-slate-900 focus:outline-none"
                     />
@@ -973,11 +1029,7 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                       <input
                         type="text"
                         value={worker.cedula}
-                        onChange={(e) => {
-                          const updated = [...formData.trabajadores];
-                          updated[index] = { ...updated[index], cedula: e.target.value };
-                          updateField("trabajadores", updated);
-                        }}
+                        onChange={(e) => updateWorkerField({ cedula: e.target.value })}
                         placeholder="C.C."
                         className="w-full min-h-[48px] text-base px-3 py-2.5 rounded-xl border-2 border-slate-300 bg-white font-semibold text-slate-900 focus:border-slate-900 focus:outline-none"
                       />
@@ -989,11 +1041,7 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                       <input
                         type="text"
                         value={worker.arl}
-                        onChange={(e) => {
-                          const updated = [...formData.trabajadores];
-                          updated[index] = { ...updated[index], arl: e.target.value };
-                          updateField("trabajadores", updated);
-                        }}
+                        onChange={(e) => updateWorkerField({ arl: e.target.value })}
                         placeholder="ARL"
                         className="w-full min-h-[48px] text-base px-3 py-2.5 rounded-xl border-2 border-slate-300 bg-white font-semibold text-emerald-800 focus:border-slate-900 focus:outline-none"
                       />
@@ -1007,44 +1055,52 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                     <input
                       type="text"
                       value={worker.cargo}
-                      onChange={(e) => {
-                        const updated = [...formData.trabajadores];
-                        updated[index] = { ...updated[index], cargo: e.target.value };
-                        updateField("trabajadores", updated);
-                      }}
+                      onChange={(e) => updateWorkerField({ cargo: e.target.value })}
                       placeholder="Cargo o labor"
                       className="w-full min-h-[48px] text-base px-3.5 py-2.5 rounded-xl border-2 border-slate-300 bg-white font-medium text-slate-900 focus:border-slate-900 focus:outline-none"
                     />
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* VISTA ESCRITORIO / TABLET: TABLA CON ENTRADAS AMPLIAS */}
             <div className="hidden sm:block border-2 border-slate-300 rounded-2xl overflow-hidden shadow-2xs bg-white">
               <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left min-w-[700px]">
+                <table className="w-full text-sm text-left min-w-[740px]">
                   <thead className="bg-slate-100 text-slate-900 font-extrabold border-b-2 border-slate-300">
                     <tr>
-                      <th className="p-3 w-[32%]">NOMBRES Y APELLIDOS</th>
-                      <th className="p-3 w-[20%]">CÉDULA</th>
-                      <th className="p-3 w-[24%]">CARGO</th>
+                      <th className="p-3 w-[30%]">NOMBRES Y APELLIDOS</th>
+                      <th className="p-3 w-[18%]">CÉDULA</th>
+                      <th className="p-3 w-[23%]">CARGO</th>
                       <th className="p-3 w-[14%]">ARL</th>
-                      <th className="p-3 w-[10%] text-center">ACCIONES</th>
+                      <th className="p-3 w-[15%] text-center">ACCIONES</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
-                    {formData.trabajadores.map((worker, index) => (
+                    {formData.trabajadores.map((worker, index) => {
+                      const hasSignature = Boolean(formData.firmasTrabajadores[worker.id] || worker.firmaUrl);
+                      const updateWorkerRowField = (patch: Partial<PersonalMember>) => {
+                        onChangeFormData((prev) => {
+                          const updated = [...prev.trabajadores];
+                          if (!updated[index]) return prev;
+                          const nextWorker = { ...updated[index], ...patch };
+                          updated[index] = nextWorker;
+                          if (onSyncWorkerToStaff && (nextWorker.nombre.trim() || nextWorker.cedula.trim())) {
+                            onSyncWorkerToStaff(nextWorker);
+                          }
+                          return { ...prev, trabajadores: updated };
+                        });
+                      };
+
+                      return (
                       <tr key={worker.id || index} className="hover:bg-slate-50 transition-colors">
                         <td className="p-2.5">
                           <input
                             type="text"
                             value={worker.nombre}
-                            onChange={(e) => {
-                              const updated = [...formData.trabajadores];
-                              updated[index] = { ...updated[index], nombre: e.target.value.toUpperCase() };
-                              updateField("trabajadores", updated);
-                            }}
+                            onChange={(e) => updateWorkerRowField({ nombre: e.target.value.toUpperCase() })}
                             placeholder="NOMBRES COMPLETOS"
                             className="w-full min-h-[44px] text-sm font-bold uppercase px-3 py-2 rounded-lg border-2 border-slate-300 bg-white text-slate-900 focus:border-slate-900 focus:outline-none"
                           />
@@ -1053,11 +1109,7 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                           <input
                             type="text"
                             value={worker.cedula}
-                            onChange={(e) => {
-                              const updated = [...formData.trabajadores];
-                              updated[index] = { ...updated[index], cedula: e.target.value };
-                              updateField("trabajadores", updated);
-                            }}
+                            onChange={(e) => updateWorkerRowField({ cedula: e.target.value })}
                             placeholder="Cédula"
                             className="w-full min-h-[44px] text-sm font-semibold px-3 py-2 rounded-lg border-2 border-slate-300 bg-white text-slate-900 focus:border-slate-900 focus:outline-none"
                           />
@@ -1066,11 +1118,7 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                           <input
                             type="text"
                             value={worker.cargo}
-                            onChange={(e) => {
-                              const updated = [...formData.trabajadores];
-                              updated[index] = { ...updated[index], cargo: e.target.value };
-                              updateField("trabajadores", updated);
-                            }}
+                            onChange={(e) => updateWorkerRowField({ cargo: e.target.value })}
                             placeholder="Cargo o rol"
                             className="w-full min-h-[44px] text-sm font-medium px-3 py-2 rounded-lg border-2 border-slate-300 bg-white text-slate-900 focus:border-slate-900 focus:outline-none"
                           />
@@ -1079,11 +1127,7 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                           <input
                             type="text"
                             value={worker.arl}
-                            onChange={(e) => {
-                              const updated = [...formData.trabajadores];
-                              updated[index] = { ...updated[index], arl: e.target.value };
-                              updateField("trabajadores", updated);
-                            }}
+                            onChange={(e) => updateWorkerRowField({ arl: e.target.value })}
                             placeholder="ARL"
                             className="w-full min-h-[44px] text-sm font-bold text-emerald-800 px-3 py-2 rounded-lg border-2 border-slate-300 bg-white focus:border-slate-900 focus:outline-none"
                           />
@@ -1092,7 +1136,26 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                           <div className="flex items-center justify-center gap-1.5">
                             <button
                               type="button"
+                              onClick={() =>
+                                onOpenSignModal({
+                                  type: "worker",
+                                  id: worker.id,
+                                  name: worker.nombre || `Trabajador #${index + 1}`,
+                                })
+                              }
+                              className={`p-2 rounded-lg border transition-colors cursor-pointer ${
+                                hasSignature
+                                  ? "text-blue-700 bg-blue-50 hover:bg-blue-100 border-blue-300"
+                                  : "text-amber-800 bg-amber-50 hover:bg-amber-100 border-amber-300"
+                              }`}
+                              title={hasSignature ? "Firma registrada (clic para ver/cambiar)" : "Capturar firma del trabajador"}
+                            >
+                              <PenTool className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => {
+                                const staffMatch = staffList.find((s) => s.id === worker.id);
                                 updateField("supervisor", {
                                   ...formData.supervisor,
                                   nombre: worker.nombre,
@@ -1100,9 +1163,14 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                                   cargo: worker.cargo.includes("SST")
                                     ? worker.cargo
                                     : `Coordinador SST / ${worker.cargo}`,
+                                  firmaUrl:
+                                    formData.firmasTrabajadores[worker.id] ||
+                                    worker.firmaUrl ||
+                                    staffMatch?.firmaUrl ||
+                                    formData.supervisor.firmaUrl,
                                 });
                               }}
-                              className="p-2 text-slate-700 hover:text-emerald-800 rounded-lg hover:bg-emerald-50 border border-slate-200 transition-colors"
+                              className="p-2 text-slate-700 hover:text-emerald-800 rounded-lg hover:bg-emerald-50 border border-slate-200 transition-colors cursor-pointer"
                               title="Asignar a este trabajador como Coordinador SST"
                             >
                               <Award className="w-4 h-4 text-emerald-700" />
@@ -1111,10 +1179,12 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                               type="button"
                               onClick={() => {
                                 if (formData.trabajadores.length <= 1) return;
-                                const updated = formData.trabajadores.filter((_, i) => i !== index);
-                                updateField("trabajadores", updated);
+                                onChangeFormData((prev) => ({
+                                  ...prev,
+                                  trabajadores: prev.trabajadores.filter((_, i) => i !== index),
+                                }));
                               }}
-                              className="p-2 text-slate-500 hover:text-red-700 rounded-lg hover:bg-red-50 border border-slate-200 transition-colors"
+                              className="p-2 text-slate-500 hover:text-red-700 rounded-lg hover:bg-red-50 border border-slate-200 transition-colors cursor-pointer"
                               title="Eliminar de este ATS"
                             >
                               <Trash2 className="w-4 h-4 text-red-600" />
@@ -1122,7 +1192,8 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1141,7 +1212,14 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                           key={unselected.id}
                           type="button"
                           onClick={() => {
-                            updateField("trabajadores", [...formData.trabajadores, unselected]);
+                            onChangeFormData((prev) => ({
+                              ...prev,
+                              trabajadores: [...prev.trabajadores, unselected],
+                              firmasTrabajadores:
+                                unselected.firmaUrl && !prev.firmasTrabajadores[unselected.id]
+                                  ? { ...prev.firmasTrabajadores, [unselected.id]: unselected.firmaUrl }
+                                  : prev.firmasTrabajadores,
+                            }));
                           }}
                           className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg bg-white hover:bg-slate-200 border-2 border-slate-300 text-slate-800 transition-colors cursor-pointer"
                         >
@@ -1154,8 +1232,20 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      const missing = staffList.filter((s) => !formData.trabajadores.some((w) => w.id === s.id));
-                      updateField("trabajadores", [...formData.trabajadores, ...missing]);
+                      onChangeFormData((prev) => {
+                        const missing = staffList.filter((s) => !prev.trabajadores.some((w) => w.id === s.id));
+                        const nextFirmas = { ...prev.firmasTrabajadores };
+                        missing.forEach((m) => {
+                          if (m.firmaUrl && !nextFirmas[m.id]) {
+                            nextFirmas[m.id] = m.firmaUrl;
+                          }
+                        });
+                        return {
+                          ...prev,
+                          trabajadores: [...prev.trabajadores, ...missing],
+                          firmasTrabajadores: nextFirmas,
+                        };
+                      });
                     }}
                     className="inline-flex items-center gap-1 text-xs font-extrabold text-emerald-900 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
                   >

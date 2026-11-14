@@ -703,7 +703,7 @@ export const ATSPrintFormat: React.FC<ATSPrintFormatProps> = ({
             </thead>
             <tbody>
               {workersDisplay.map((worker, idx) => {
-                const signatureUrl = worker ? formData.firmasTrabajadores[worker.id] : null;
+                const signatureUrl = worker ? (formData.firmasTrabajadores[worker.id] || worker.firmaUrl) : null;
                 const count = workersDisplay.length;
                 const rowHeight = count > 8 ? "17px" : count > 6 ? "19.5px" : count > 4 ? "23px" : count > 3 ? "27px" : "32px";
                 const sigBoxHeight = count > 8 ? "15.5px" : count > 6 ? "18px" : count > 4 ? "21px" : count > 3 ? "25px" : "30px";
