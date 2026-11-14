@@ -37,11 +37,14 @@
 @media print {
   html, body {
     width: 215.9mm !important;
+    min-width: 215.9mm !important;
+    max-width: none !important;
     height: auto !important;
     margin: 0 !important;
     padding: 0 !important;
     background: #ffffff !important;
     color: #111827 !important;
+    overflow: visible !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
@@ -55,6 +58,7 @@
   form,
   .ats-interactive-form,
   .ats-preview-scroll-wrapper,
+  .ats-preview-fit-wrapper,
   #ats-pdf-export-stage,
   #ats-preview-document {
     display: none !important;
@@ -79,7 +83,7 @@
     position: static !important;
   }
 
-  /* Cada página tiene dimensiones Letter con min-height y overflow visible para no cortar contenido */
+  /* Cada página tiene dimensiones Letter; permitir salto limpio si una tabla crece mucho */
   .ats-page {
     width: 215.9mm !important;
     min-height: 279.4mm !important;
@@ -94,25 +98,48 @@
     display: flex !important;
     flex-direction: column !important;
     justify-content: space-between !important;
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
   }
 
-  /* PÁGINA 1: Salto obligatorio exactamente al terminar */
+  /* PÁGINA 1: Salto obligatorio al terminar la hoja 1 */
   .ats-page:first-of-type {
     page-break-after: always !important;
     break-after: page !important;
   }
 
-  /* PÁGINA 2: Evitar terminantemente generar una 3ra página */
+  /* PÁGINA 2: Evitar página huérfana al final */
   .ats-page:last-of-type {
     page-break-after: avoid !important;
     break-after: avoid !important;
   }
 
-  tr, .seccion-contenedor {
+  table.ats-table {
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+  }
+
+  table.ats-table thead {
+    display: table-header-group !important;
+  }
+
+  table.ats-table tfoot {
+    display: table-footer-group !important;
+  }
+
+  tr,
+  .ats-header-block,
+  .ats-signature-section,
+  .ats-signature-box,
+  .seccion-contenedor {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
+  }
+
+  /* La matriz ATS permite flujo limpio por filas sin partir ninguna fila a la mitad */
+  table.ats-matriz-table {
+    page-break-inside: auto !important;
+    break-inside: auto !important;
   }
 
   /* El separador visual se neutraliza en print para no duplicar el salto */
@@ -200,17 +227,20 @@
   margin: 0;
 }
 
-/* Stage oculto dedicado para captura PDF sin provocar desbordamiento en iPhone */
+/* Stage oculto fuera de pantalla con ancho fijo desktop (816px) para evitar compresión de viewport en iPhone */
 .ats-pdf-export-stage {
   position: fixed;
-  left: 0;
+  left: -12000px;
   top: 0;
-  width: 0;
-  height: 0;
-  overflow: hidden;
+  width: 816px;
+  min-width: 816px;
+  max-width: 816px;
+  height: auto;
+  overflow: visible;
   pointer-events: none;
   z-index: -9999;
-  opacity: 0;
+  opacity: 1;
+  visibility: visible;
 }
 
 .ats-export-page-box {
