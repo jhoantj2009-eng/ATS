@@ -14,7 +14,7 @@ export interface PersonalMember {
   cargo: string;
   arl: string;
   firmaUrl?: string;
-  rol?: "trabajador" | "coordinador_sst" | "vigia";
+  rol?: "trabajador" | "coordinador_sst" | "vigia" | "autorizador";
 }
 
 export interface ATSPaso {
@@ -72,6 +72,12 @@ export interface ATSFormData {
     nombre: string;
     cedula: string;
     cargo?: string;
+    firmaUrl: string;
+  };
+  autorizador?: {
+    nombre: string;
+    cedula: string;
+    cargo: string;
     firmaUrl: string;
   };
 }

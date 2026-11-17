@@ -14,6 +14,7 @@ import {
   PenTool,
   Eraser,
   AlertCircle,
+  Stamp,
 } from "lucide-react";
 import { PersonalMember } from "../types";
 import { SignatureModal } from "./SignatureModal";
@@ -22,6 +23,13 @@ interface SupervisorData {
   nombre: string;
   cedula: string;
   cargo?: string;
+  firmaUrl: string;
+}
+
+interface AutorizadorData {
+  nombre: string;
+  cedula: string;
+  cargo: string;
   firmaUrl: string;
 }
 
@@ -34,6 +42,8 @@ interface PersonalManagerModalProps {
   onToggleActiveWorker: (member: PersonalMember) => void;
   supervisor?: SupervisorData;
   onUpdateSupervisor?: (supervisor: SupervisorData) => void;
+  autorizador?: AutorizadorData;
+  onUpdateAutorizador?: (autorizador: AutorizadorData) => void;
   onUpdateActiveWorkers?: (workers: PersonalMember[]) => void;
   activeWorkerSignatures?: Record<string, string>;
   onSaveWorkerSignature?: (workerId: string, signatureDataUrl: string) => void;
@@ -48,11 +58,13 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
   onToggleActiveWorker,
   supervisor,
   onUpdateSupervisor,
+  autorizador,
+  onUpdateAutorizador,
   onUpdateActiveWorkers,
   activeWorkerSignatures,
   onSaveWorkerSignature,
 }) => {
-  const [activeTab, setActiveTab] = useState<"cuadrilla" | "coordinador">("cuadrilla");
+  const [activeTab, setActiveTab] = useState<"cuadrilla" | "coordinador" | "autorizador">("cuadrilla");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
 
@@ -62,7 +74,7 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
     memberId?: string;
     name: string;
     initialSignature?: string;
-    isCoordinator?: boolean;
+    roleMode?: "worker" | "coordinator" | "autorizador";
   } | null>(null);
 
   // Form fields for workers
@@ -144,20 +156,34 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
     });
   };
 
-  const handleSaveWorker = (forceCoordinatorRole = false): boolean => {
+  const handleSaveWorker = (roleMode: "worker" | "coordinator" | "autorizador" = "worker"): boolean => {
     if (!workerFormData.nombre.trim() || !workerFormData.cedula.trim()) {
       setFormError("Por favor ingrese el nombre completo y el número de cédula.");
       return false;
     }
     setFormError(null);
 
+    const resolvedDefaultCargo =
+      roleMode === "coordinator"
+        ? "Coordinador SST"
+        : roleMode === "autorizador"
+        ? "Jefe de Área / Autorizador"
+        : "Técnico Ejecutor";
+
+    const resolvedRole: PersonalMember["rol"] =
+      roleMode === "coordinator"
+        ? "coordinador_sst"
+        : roleMode === "autorizador"
+        ? "autorizador"
+        : workerFormData.rol || "trabajador";
+
     const normalizedData: Omit<PersonalMember, "id"> = {
       ...workerFormData,
       nombre: workerFormData.nombre.trim().toUpperCase(),
       cedula: workerFormData.cedula.trim(),
-      cargo: workerFormData.cargo.trim() || (forceCoordinatorRole ? "Coordinador SST" : "Técnico Ejecutor"),
+      cargo: workerFormData.cargo.trim() || resolvedDefaultCargo,
       arl: workerFormData.arl.trim() || "SURA ARL",
-      rol: forceCoordinatorRole ? "coordinador_sst" : workerFormData.rol || "trabajador",
+      rol: resolvedRole,
     };
 
     if (isAddingNew) {
@@ -168,8 +194,16 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
       const updated = [...staffList, newMember];
       onUpdateStaffList(updated);
 
-      if (!forceCoordinatorRole && onUpdateActiveWorkers) {
+      if (roleMode === "worker" && onUpdateActiveWorkers) {
         onUpdateActiveWorkers([...activeWorkers, newMember]);
+      }
+      if (roleMode === "autorizador" && onUpdateAutorizador && !autorizador?.nombre?.trim()) {
+        onUpdateAutorizador({
+          nombre: newMember.nombre,
+          cedula: newMember.cedula,
+          cargo: newMember.cargo,
+          firmaUrl: newMember.firmaUrl || "",
+        });
       }
       if (onSaveWorkerSignature && newMember.firmaUrl) {
         onSaveWorkerSignature(newMember.id, newMember.firmaUrl);
@@ -191,7 +225,7 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
             item.id === editingId ? { ...item, ...normalizedData } : item
           );
           onUpdateActiveWorkers(updatedActive);
-        } else if (!forceCoordinatorRole) {
+        } else if (roleMode === "worker") {
           onUpdateActiveWorkers([...activeWorkers, { ...normalizedData, id: editingId }]);
         }
       }
@@ -214,6 +248,22 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
           cedula: normalizedData.cedula,
           cargo: normalizedData.cargo || supervisor.cargo,
           firmaUrl: normalizedData.firmaUrl !== undefined ? normalizedData.firmaUrl : supervisor.firmaUrl,
+        });
+      }
+
+      // Si este miembro es la persona que autoriza actual, actualizarlo también
+      if (
+        onUpdateAutorizador &&
+        autorizador &&
+        oldMember &&
+        ((autorizador.cedula.trim() !== "" && autorizador.cedula.trim() === oldMember.cedula.trim()) ||
+          (autorizador.nombre.trim() !== "" && autorizador.nombre.trim() === oldMember.nombre.trim()))
+      ) {
+        onUpdateAutorizador({
+          nombre: normalizedData.nombre,
+          cedula: normalizedData.cedula,
+          cargo: normalizedData.cargo || autorizador.cargo,
+          firmaUrl: normalizedData.firmaUrl !== undefined ? normalizedData.firmaUrl : autorizador.firmaUrl,
         });
       }
 
@@ -264,6 +314,19 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
           firmaUrl: dataUrl,
         });
       }
+
+      if (
+        onUpdateAutorizador &&
+        autorizador &&
+        targetMember &&
+        ((autorizador.cedula.trim() !== "" && autorizador.cedula.trim() === targetMember.cedula.trim()) ||
+          (autorizador.nombre.trim() !== "" && autorizador.nombre.trim() === targetMember.nombre.trim()))
+      ) {
+        onUpdateAutorizador({
+          ...autorizador,
+          firmaUrl: dataUrl,
+        });
+      }
     }
 
     setSignaturePrompt(null);
@@ -304,6 +367,24 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
     setTimeout(() => setSavedSupervisorSuccess(false), 2500);
   };
 
+  const handleSetAsAutorizador = (member: PersonalMember) => {
+    const newAutorizador: AutorizadorData = {
+      nombre: member.nombre,
+      cedula: member.cedula,
+      cargo: member.cargo || "Jefe de Área / Autorizador",
+      firmaUrl: member.firmaUrl || activeWorkerSignatures?.[member.id] || "",
+    };
+
+    if (onUpdateAutorizador) {
+      onUpdateAutorizador(newAutorizador);
+    }
+
+    const updatedStaff = staffList.map((s) =>
+      s.id === member.id ? { ...s, rol: "autorizador" as const } : s
+    );
+    onUpdateStaffList(updatedStaff);
+  };
+
   const handleSaveSupervisorForm = (e: React.FormEvent) => {
     e.preventDefault();
       // Instead of alert, just return if empty
@@ -338,7 +419,13 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
   const handleSaveAndClose = () => {
     let savedInline = false;
     if ((isAddingNew || editingId) && workerFormData.nombre.trim() && workerFormData.cedula.trim()) {
-      savedInline = handleSaveWorker(activeTab === "coordinador");
+      const mode: "worker" | "coordinator" | "autorizador" =
+        activeTab === "coordinador"
+          ? "coordinator"
+          : activeTab === "autorizador"
+          ? "autorizador"
+          : "worker";
+      savedInline = handleSaveWorker(mode);
     }
     if (!savedInline && onUpdateActiveWorkers) {
       onUpdateActiveWorkers([...activeWorkers]);
@@ -346,28 +433,53 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
     onClose();
   };
 
-  const renderWorkerEditorCard = (isCoordinatorMode: boolean) => (
+  const renderWorkerEditorCard = (roleMode: "worker" | "coordinator" | "autorizador") => {
+    const isCoordinatorMode = roleMode === "coordinator";
+    const isAutorizadorMode = roleMode === "autorizador";
+    const isSpecialRole = isCoordinatorMode || isAutorizadorMode;
+
+    return (
     <div
       ref={!isAddingNew ? inlineEditRef : undefined}
       className={`p-3.5 sm:p-4 rounded-xl border-2 space-y-3 animate-in fade-in ${
-        isCoordinatorMode ? "border-emerald-300 bg-emerald-50/80" : "border-blue-300 bg-blue-50/80"
+        isCoordinatorMode
+          ? "border-emerald-300 bg-emerald-50/80"
+          : isAutorizadorMode
+          ? "border-indigo-300 bg-indigo-50/80"
+          : "border-blue-300 bg-blue-50/80"
       }`}
     >
       <div className="flex items-center justify-between gap-2">
         <span
           className={`text-xs font-extrabold uppercase tracking-wider flex items-center gap-1.5 ${
-            isCoordinatorMode ? "text-emerald-900" : "text-blue-900"
+            isCoordinatorMode
+              ? "text-emerald-900"
+              : isAutorizadorMode
+              ? "text-indigo-900"
+              : "text-blue-900"
           }`}
         >
           {isAddingNew ? (
             <>
               <UserPlus className="w-4 h-4 shrink-0" />
-              <span>{isCoordinatorMode ? "Nuevo Coordinador SST" : "Nuevo Trabajador"}</span>
+              <span>
+                {isCoordinatorMode
+                  ? "Nuevo Coordinador SST"
+                  : isAutorizadorMode
+                  ? "Nueva Persona que Autoriza"
+                  : "Nuevo Trabajador"}
+              </span>
             </>
           ) : (
             <>
               <Edit2 className="w-4 h-4 shrink-0" />
-              <span>{isCoordinatorMode ? "Modificar Coordinador SST" : "Modificar Datos del Trabajador"}</span>
+              <span>
+                {isCoordinatorMode
+                  ? "Modificar Coordinador SST"
+                  : isAutorizadorMode
+                  ? "Modificar Persona que Autoriza"
+                  : "Modificar Datos del Trabajador"}
+              </span>
             </>
           )}
         </span>
@@ -392,7 +504,7 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className={isCoordinatorMode ? "sm:col-span-2" : ""}>
+        <div className={isSpecialRole ? "sm:col-span-2" : ""}>
           <label className="block text-xs font-semibold text-slate-700 mb-1">
             Nombres y Apellidos *
           </label>
@@ -403,7 +515,13 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
               setFormError(null);
               setWorkerFormData({ ...workerFormData, nombre: e.target.value.toUpperCase() });
             }}
-            placeholder={isCoordinatorMode ? "Ej. JHOAN TALERO JIMÉNEZ" : "Ej. CARLOS EDUARDO RODRÍGUEZ"}
+            placeholder={
+              isCoordinatorMode
+                ? "Ej. JHOAN TALERO JIMÉNEZ"
+                : isAutorizadorMode
+                ? "Ej. JUAN PABLO MARTÍNEZ"
+                : "Ej. CARLOS EDUARDO RODRÍGUEZ"
+            }
             className="w-full min-h-[42px] text-sm sm:text-xs px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-blue-500 uppercase font-bold text-slate-900"
           />
         </div>
@@ -434,12 +552,18 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
             onChange={(e) =>
               setWorkerFormData({ ...workerFormData, cargo: e.target.value })
             }
-            placeholder={isCoordinatorMode ? "Ej. Coordinador SST" : "Ej. Técnico Especialista en Alturas"}
+            placeholder={
+              isCoordinatorMode
+                ? "Ej. Coordinador SST"
+                : isAutorizadorMode
+                ? "Ej. Jefe de Mantenimiento / Director"
+                : "Ej. Técnico Especialista en Alturas"
+            }
             className="w-full min-h-[42px] text-sm sm:text-xs px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-blue-500 font-medium text-slate-900"
           />
         </div>
 
-        {!isCoordinatorMode && (
+        {!isSpecialRole && (
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
               ARL Afiliada
@@ -461,6 +585,8 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
           <label className="block text-xs font-semibold text-slate-700 mb-1.5">
             {isCoordinatorMode
               ? "Firma Digital Guardada del Coordinador SST (Opcional)"
+              : isAutorizadorMode
+              ? "Firma Digital Guardada de Quien Autoriza (Opcional)"
               : "Firma Digital Guardada (Opcional)"}
           </label>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 p-3 rounded-xl border border-slate-300 bg-white">
@@ -483,14 +609,22 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
                 onClick={() =>
                   setSignaturePrompt({
                     mode: "form",
-                    name: workerFormData.nombre || (isCoordinatorMode ? "Coordinador SST" : "Nuevo Trabajador"),
+                    name:
+                      workerFormData.nombre ||
+                      (isCoordinatorMode
+                        ? "Coordinador SST"
+                        : isAutorizadorMode
+                        ? "Persona que Autoriza"
+                        : "Nuevo Trabajador"),
                     initialSignature: workerFormData.firmaUrl,
-                    isCoordinator: isCoordinatorMode,
+                    roleMode,
                   })
                 }
                 className={`inline-flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-lg shadow-2xs transition-colors cursor-pointer ${
                   isCoordinatorMode
                     ? "text-white bg-emerald-600 hover:bg-emerald-700"
+                    : isAutorizadorMode
+                    ? "text-white bg-indigo-600 hover:bg-indigo-700"
                     : "text-slate-900 bg-amber-400 hover:bg-amber-300 border border-amber-500"
                 }`}
               >
@@ -526,15 +660,19 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
         </button>
         <button
           type="button"
-          onClick={() => handleSaveWorker(isCoordinatorMode)}
+          onClick={() => handleSaveWorker(roleMode)}
           className={`inline-flex items-center gap-1.5 text-xs font-bold text-white px-4 py-2 rounded-lg shadow-xs transition-colors cursor-pointer ${
-            isCoordinatorMode ? "bg-emerald-600 hover:bg-emerald-700" : "bg-blue-600 hover:bg-blue-700"
+            isCoordinatorMode
+              ? "bg-emerald-600 hover:bg-emerald-700"
+              : isAutorizadorMode
+              ? "bg-indigo-600 hover:bg-indigo-700"
+              : "bg-blue-600 hover:bg-blue-700"
           }`}
         >
           <Save className="w-3.5 h-3.5" />
           <span>
             {isAddingNew
-              ? isCoordinatorMode
+              ? isSpecialRole
                 ? "Añadir al Directorio"
                 : "Guardar y Asignar al ATS"
               : "Actualizar Datos"}
@@ -542,6 +680,15 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
         </button>
       </div>
     </div>
+    );
+  };
+
+  const autorizadoresList = staffList.filter(
+    (s) =>
+      s.rol === "autorizador" ||
+      (autorizador?.nombre?.trim() &&
+        ((autorizador.cedula?.trim() && s.cedula.trim() === autorizador.cedula.trim()) ||
+          s.nombre.trim() === autorizador.nombre.trim()))
   );
 
   return (
@@ -555,10 +702,10 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
             </div>
             <div className="min-w-0">
               <h3 className="font-bold text-slate-900 text-sm sm:text-base leading-tight">
-                Gestión de Personal & Coordinador SST
+                Gestión de Personal, SST y Autorizador
               </h3>
               <p className="text-[11px] sm:text-xs text-slate-500 leading-snug mt-0.5">
-                Edite con el lápiz, agregue trabajadores y guarde firmas digitales
+                Edite con el lápiz, agregue personal, autorizadores y guarde firmas digitales
               </p>
             </div>
           </div>
@@ -573,7 +720,7 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
         </div>
 
         {/* Tab Selection */}
-        <div className="shrink-0 flex border-b border-slate-200 bg-slate-100/70 px-3 sm:px-6 pt-2 gap-1.5 sm:gap-2">
+        <div className="shrink-0 flex overflow-x-auto border-b border-slate-200 bg-slate-100/70 px-3 sm:px-6 pt-2 gap-1 sm:gap-2">
           <button
             type="button"
             onClick={() => {
@@ -582,14 +729,14 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
               setEditingId(null);
               setFormError(null);
             }}
-            className={`flex items-center gap-1.5 sm:gap-2 py-2.5 px-3 sm:px-4 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 py-2.5 px-2.5 sm:px-3.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
               activeTab === "cuadrilla"
                 ? "border-blue-600 text-blue-700 bg-white rounded-t-lg shadow-2xs"
                 : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-white/50 rounded-t-lg"
             }`}
           >
             <Users className="w-4 h-4 shrink-0" />
-            <span className="truncate">Trabajadores Ejecutores</span>
+            <span>Ejecutores</span>
             <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.2 rounded-full shrink-0">
               {staffList.length}
             </span>
@@ -603,16 +750,37 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
               setEditingId(null);
               setFormError(null);
             }}
-            className={`flex items-center gap-1.5 sm:gap-2 py-2.5 px-3 sm:px-4 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 py-2.5 px-2.5 sm:px-3.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
               activeTab === "coordinador"
                 ? "border-emerald-600 text-emerald-800 bg-white rounded-t-lg shadow-2xs"
                 : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-white/50 rounded-t-lg"
             }`}
           >
             <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span className="truncate">Coordinador SST</span>
+            <span>Coord. SST</span>
             <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.2 rounded-full shrink-0">
               Emisor
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("autorizador");
+              setIsAddingNew(false);
+              setEditingId(null);
+              setFormError(null);
+            }}
+            className={`flex items-center gap-1.5 py-2.5 px-2.5 sm:px-3.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              activeTab === "autorizador"
+                ? "border-indigo-600 text-indigo-800 bg-white rounded-t-lg shadow-2xs"
+                : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-white/50 rounded-t-lg"
+            }`}
+          >
+            <Stamp className="w-4 h-4 text-indigo-600 shrink-0" />
+            <span>Quien Autoriza</span>
+            <span className="bg-indigo-100 text-indigo-800 text-[10px] font-bold px-1.5 py-0.2 rounded-full shrink-0">
+              {autorizadoresList.length}
             </span>
           </button>
         </div>
@@ -626,7 +794,7 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
           {activeTab === "cuadrilla" && (
             <div className="space-y-4">
               {/* Add Worker Form (at top when adding new) */}
-              {isAddingNew && renderWorkerEditorCard(false)}
+              {isAddingNew && renderWorkerEditorCard("worker")}
               {/* Action Bar */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -689,6 +857,10 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
                       supervisor &&
                       (supervisor.cedula.trim() === member.cedula.trim() ||
                         supervisor.nombre.trim() === member.nombre.trim());
+                    const isAutorizador =
+                      autorizador &&
+                      ((autorizador.cedula.trim() !== "" && autorizador.cedula.trim() === member.cedula.trim()) ||
+                        (autorizador.nombre.trim() !== "" && autorizador.nombre.trim() === member.nombre.trim()));
                     const memberSignature = member.firmaUrl || activeWorkerSignatures?.[member.id];
 
                     const isEditingThis = editingId === member.id;
@@ -733,6 +905,12 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
                                   <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded flex items-center gap-1 shrink-0">
                                     <ShieldCheck className="w-3 h-3 text-emerald-600" />
                                     Coordinador SST
+                                  </span>
+                                )}
+                                {isAutorizador && (
+                                  <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.2 rounded flex items-center gap-1 shrink-0">
+                                    <Stamp className="w-3 h-3 text-indigo-600" />
+                                    Autoriza Trabajo
                                   </span>
                                 )}
                                 {memberSignature && (
@@ -785,6 +963,17 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
                                 <span>Asignar Coord. SST</span>
                               </button>
                             )}
+                            {!isAutorizador && (
+                              <button
+                                type="button"
+                                onClick={() => handleSetAsAutorizador(member)}
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
+                                title="Designar como Persona que Autoriza el Trabajo"
+                              >
+                                <Stamp className="w-3 h-3" />
+                                <span>Autoriza</span>
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => handleStartEdit(member)}
@@ -811,7 +1000,7 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
                         </div>
 
                         {/* Inline Edit Form right inside the worker card */}
-                        {isEditingThis && renderWorkerEditorCard(false)}
+                        {isEditingThis && renderWorkerEditorCard("worker")}
                       </div>
                     );
                   })
@@ -840,7 +1029,7 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
               </div>
 
               {/* Add Coordinator Form (at top when adding new) */}
-              {isAddingNew && renderWorkerEditorCard(true)}
+              {isAddingNew && renderWorkerEditorCard("coordinator")}
 
               {/* Action Bar for Coordinators */}
               <div className="flex items-center justify-between gap-2">
@@ -963,7 +1152,7 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
                                     memberId: member.id,
                                     name: member.nombre,
                                     initialSignature: coordSignature,
-                                    isCoordinator: true,
+                                    roleMode: "coordinator",
                                   })
                                 }
                                 className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border transition-colors cursor-pointer ${
@@ -1002,10 +1191,190 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
                           </div>
 
                           {/* Inline Edit Form right inside the coordinator card */}
-                          {isEditingCoord && renderWorkerEditorCard(true)}
+                          {isEditingCoord && renderWorkerEditorCard("coordinator")}
                         </div>
                       );
                     })
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: PERSONA QUE AUTORIZA EL TRABAJO */}
+          {activeTab === "autorizador" && (
+            <div className="space-y-4">
+              <div className="bg-indigo-50/70 border border-indigo-200 rounded-xl p-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <Stamp className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-indigo-950">
+                      Directorio de Personas que Autorizan el Trabajo
+                    </h4>
+                    <p className="text-xs text-indigo-800 leading-relaxed mt-0.5">
+                      Guarde nombre, cédula, cargo y firma de quienes autorizan trabajos, modifíquelos cuando quiera y selecciónelos para el PDF oficial.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Add Autorizador Form (at top when adding new) */}
+              {isAddingNew && renderWorkerEditorCard("autorizador")}
+
+              {/* Action Bar for Autorizadores */}
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-xs font-semibold text-slate-700">
+                  Autorizadores Guardados ({autorizadoresList.length})
+                </span>
+                {!isAddingNew && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormError(null);
+                      setIsAddingNew(true);
+                      setEditingId(null);
+                      setWorkerFormData({
+                        nombre: "",
+                        cedula: "",
+                        cargo: "Jefe de Área / Autorizador",
+                        arl: "SURA ARL",
+                        rol: "autorizador",
+                        firmaUrl: "",
+                      });
+                      setTimeout(() => {
+                        scrollBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+                      }, 50);
+                    }}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Añadir Quien Autoriza</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Autorizadores List */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs divide-y divide-slate-200">
+                {autorizadoresList.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-slate-500">
+                    No hay personas registradas en el directorio de autorización. Presione <strong>"Añadir Quien Autoriza"</strong> para guardar nombre, cédula, cargo y firma.
+                  </div>
+                ) : (
+                  autorizadoresList.map((member) => {
+                    const isSelected = Boolean(
+                      autorizador &&
+                        ((autorizador.cedula.trim() !== "" && autorizador.cedula.trim() === member.cedula.trim()) ||
+                          (autorizador.nombre.trim() !== "" && autorizador.nombre.trim() === member.nombre.trim()))
+                    );
+                    const authSignature =
+                      member.firmaUrl || (isSelected ? autorizador?.firmaUrl : undefined) || activeWorkerSignatures?.[member.id];
+                    const isEditingAuth = editingId === member.id;
+
+                    return (
+                      <div
+                        key={member.id}
+                        className={`p-3.5 transition-colors space-y-3 ${
+                          isEditingAuth
+                            ? "bg-indigo-50/40"
+                            : isSelected
+                            ? "bg-indigo-50/60"
+                            : "hover:bg-slate-50"
+                        }`}
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <button
+                              type="button"
+                              onClick={() => handleSetAsAutorizador(member)}
+                              className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+                                isSelected
+                                  ? "bg-indigo-600 border-indigo-600 text-white shadow-2xs"
+                                  : "border-slate-300 hover:border-slate-400 bg-white"
+                              }`}
+                              title="Seleccionar como la persona que autoriza este ATS"
+                            >
+                              {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                            </button>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-xs font-bold text-slate-900 uppercase">
+                                  {member.nombre}
+                                </p>
+                                {isSelected && (
+                                  <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.2 rounded shrink-0">
+                                    Autorizador Actual
+                                  </span>
+                                )}
+                                {authSignature && (
+                                  <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.2 rounded flex items-center gap-1 shrink-0">
+                                    <PenTool className="w-2.5 h-2.5" />
+                                    Firma guardada
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-slate-500 mt-0.5">
+                                <span>CC: <strong className="text-slate-700 font-mono">{member.cedula}</strong></span>
+                                <span>•</span>
+                                <span>{member.cargo}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Actions */}
+                          <div className="flex items-center gap-1.5 justify-end shrink-0 sm:ml-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSignaturePrompt({
+                                  mode: "member",
+                                  memberId: member.id,
+                                  name: member.nombre,
+                                  initialSignature: authSignature,
+                                  roleMode: "autorizador",
+                                })
+                              }
+                              className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border transition-colors cursor-pointer ${
+                                authSignature
+                                  ? "text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border-indigo-200"
+                                  : "text-slate-700 bg-slate-100 hover:bg-slate-200 border-slate-300"
+                              }`}
+                              title={authSignature ? "Ver o actualizar firma guardada" : "Capturar y guardar firma"}
+                            >
+                              <PenTool className="w-3 h-3" />
+                              <span>{authSignature ? "Firma" : "Firmar"}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleStartEdit(member)}
+                              className={`p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg border transition-colors cursor-pointer ${
+                                isEditingAuth
+                                  ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                                  : "text-indigo-700 bg-indigo-50/70 hover:bg-indigo-100 border-indigo-200"
+                              }`}
+                              title="Editar datos de quien autoriza"
+                              aria-label={`Editar autorizador ${member.nombre}`}
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteWorker(member.id)}
+                              className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors cursor-pointer"
+                              title="Eliminar del directorio"
+                              aria-label={`Eliminar autorizador ${member.nombre}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Inline Edit Form right inside the autorizador card */}
+                        {isEditingAuth && renderWorkerEditorCard("autorizador")}
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -1045,8 +1414,10 @@ export const PersonalManagerModal: React.FC<PersonalManagerModalProps> = ({
         onClose={() => setSignaturePrompt(null)}
         onSave={handleSaveSignatureFromModal}
         title={
-          signaturePrompt?.isCoordinator
+          signaturePrompt?.roleMode === "coordinator"
             ? `Firma Guardada - Coordinador SST: ${signaturePrompt.name}`
+            : signaturePrompt?.roleMode === "autorizador"
+            ? `Firma Guardada - Quien Autoriza: ${signaturePrompt.name}`
             : `Firma Guardada - Trabajador: ${signaturePrompt?.name || ""}`
         }
         subtitle="Esta firma quedará guardada en el directorio de personal para futuros ATS"

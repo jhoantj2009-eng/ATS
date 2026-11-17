@@ -45,6 +45,7 @@ import {
   Tag,
   Edit2,
   X,
+  Stamp,
 } from "lucide-react";
 
 interface ATSInteractiveFormProps {
@@ -54,7 +55,7 @@ interface ATSInteractiveFormProps {
   staffList: PersonalMember[];
   onOpenStaffModal: () => void;
   onOpenCompanyModal: () => void;
-  onOpenSignModal: (target: { type: "worker" | "supervisor"; id?: string; name: string }) => void;
+  onOpenSignModal: (target: { type: "worker" | "supervisor" | "autorizador"; id?: string; name: string }) => void;
   isGeneratingAI: boolean;
   onGenerateWithAI: (task?: string, height?: string, detail?: string, type?: string) => void;
   onViewPDF?: () => void;
@@ -66,6 +67,12 @@ interface ATSInteractiveFormProps {
   onManualSave?: () => void;
   onUpdateEmpresa?: (updated: EmpresaConfig) => void;
   onSyncWorkerToStaff?: (worker: PersonalMember) => void;
+  onSaveAutorizadorToStaff?: (autorizador: {
+    nombre: string;
+    cedula: string;
+    cargo: string;
+    firmaUrl: string;
+  }) => void;
 }
 
 export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
@@ -87,6 +94,7 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
   onManualSave,
   onUpdateEmpresa,
   onSyncWorkerToStaff,
+  onSaveAutorizadorToStaff,
 }) => {
   const [activeSection, setActiveSection] = useState<"cabecera" | "matriz" | "epp" | "area" | "firmas">("cabecera");
   const [isOptimizingLogo, setIsOptimizingLogo] = useState(false);
@@ -425,7 +433,8 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
       shortTitle: "5. Firmas",
       isCompleted: Boolean(
         Object.keys(formData.firmasTrabajadores || {}).length > 0 ||
-        Boolean(formData.supervisor?.firmaUrl)
+        Boolean(formData.supervisor?.firmaUrl) ||
+        Boolean(formData.autorizador?.firmaUrl)
       ),
     },
   ];
@@ -848,6 +857,173 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
               </div>
             </div>
           </div>
+
+          {/* PERSONA QUE AUTORIZA EL TRABAJO */}
+          {(() => {
+            const currentAuth = formData.autorizador || {
+              nombre: "",
+              cedula: "",
+              cargo: "",
+              firmaUrl: "",
+            };
+            const savedAutorizadores = staffList.filter((s) => s.rol === "autorizador");
+            const quickChoices = savedAutorizadores.length > 0 ? savedAutorizadores : staffList;
+            const canSaveDir = Boolean(currentAuth.nombre.trim() && currentAuth.cedula.trim());
+
+            return (
+              <div className="bg-indigo-50/50 border-2 border-indigo-200 rounded-2xl p-4 sm:p-5 space-y-4 shadow-2xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-indigo-200/80">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-indigo-700 text-white flex items-center justify-center shadow-xs shrink-0">
+                      <Stamp className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm sm:text-base font-extrabold text-slate-900 uppercase tracking-wide">
+                        Persona que Autoriza el Trabajo
+                      </h4>
+                      <p className="text-xs text-slate-600 font-medium">
+                        Nombre, cédula, cargo y firma de quien autoriza la ejecución (guardable en el directorio)
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+                    {currentAuth.firmaUrl ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onOpenSignModal({
+                            type: "autorizador",
+                            name: currentAuth.nombre || "Persona que Autoriza",
+                          })
+                        }
+                        className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-800 bg-indigo-100 hover:bg-indigo-200 border border-indigo-300 px-3 py-1.5 rounded-xl shadow-2xs cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-4 h-4 text-indigo-600" />
+                        <span>Firma Registrada</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onOpenSignModal({
+                            type: "autorizador",
+                            name: currentAuth.nombre || "Persona que Autoriza",
+                          })
+                        }
+                        className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-bold text-indigo-900 bg-white hover:bg-indigo-50 border-2 border-indigo-300 px-3.5 py-2 rounded-xl transition-all shadow-2xs cursor-pointer active:scale-98"
+                      >
+                        <PenTool className="w-4 h-4 text-indigo-700" />
+                        <span>Firmar Autorización</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs sm:text-sm font-bold text-slate-900 mb-1.5">
+                      Nombres y Apellidos
+                    </label>
+                    <input
+                      type="text"
+                      value={currentAuth.nombre}
+                      onChange={(e) =>
+                        updateField("autorizador", {
+                          ...currentAuth,
+                          nombre: e.target.value.toUpperCase(),
+                        })
+                      }
+                      placeholder="NOMBRE DE QUIEN AUTORIZA"
+                      className="w-full min-h-[48px] h-12 text-base px-4 py-2.5 rounded-xl border-2 border-slate-300 bg-white font-bold uppercase text-slate-900 focus:border-indigo-700 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs sm:text-sm font-bold text-slate-900 mb-1.5">
+                      Número de Cédula
+                    </label>
+                    <input
+                      type="text"
+                      value={currentAuth.cedula}
+                      onChange={(e) =>
+                        updateField("autorizador", {
+                          ...currentAuth,
+                          cedula: e.target.value,
+                        })
+                      }
+                      placeholder="C.C. de quien autoriza"
+                      className="w-full min-h-[48px] h-12 text-base px-4 py-2.5 rounded-xl border-2 border-slate-300 bg-white font-semibold text-slate-900 focus:border-indigo-700 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs sm:text-sm font-bold text-slate-900 mb-1.5">
+                      Cargo / Área que Autoriza
+                    </label>
+                    <input
+                      type="text"
+                      value={currentAuth.cargo}
+                      onChange={(e) =>
+                        updateField("autorizador", {
+                          ...currentAuth,
+                          cargo: e.target.value,
+                        })
+                      }
+                      placeholder="Ej. Jefe de Área / Ingeniero Residente"
+                      className="w-full min-h-[48px] h-12 text-base px-4 py-2.5 rounded-xl border-2 border-slate-300 bg-white font-medium text-slate-900 focus:border-indigo-700 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Selección rápida desde directorio + Guardar en Directorio */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-xs font-bold text-slate-700 mr-1">
+                      {savedAutorizadores.length > 0 ? "Autorizadores guardados:" : "Seleccionar del directorio:"}
+                    </span>
+                    {quickChoices.map((st) => (
+                      <button
+                        key={st.id}
+                        type="button"
+                        onClick={() =>
+                          updateField("autorizador", {
+                            nombre: st.nombre,
+                            cedula: st.cedula,
+                            cargo: st.cargo || "Jefe de Área / Autorizador",
+                            firmaUrl: st.firmaUrl || currentAuth.firmaUrl || "",
+                          })
+                        }
+                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-indigo-100 text-slate-800 border border-indigo-200 transition-colors text-xs font-semibold cursor-pointer"
+                      >
+                        {st.nombre}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={onOpenStaffModal}
+                      className="px-2.5 py-1 rounded-lg bg-indigo-100 hover:bg-indigo-200 text-indigo-900 border border-indigo-300 transition-colors text-xs font-bold cursor-pointer"
+                    >
+                      Gestionar Directorio
+                    </button>
+                  </div>
+
+                  {onSaveAutorizadorToStaff && (
+                    <button
+                      type="button"
+                      disabled={!canSaveDir}
+                      onClick={() => onSaveAutorizadorToStaff(currentAuth)}
+                      className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-indigo-700 hover:bg-indigo-800 disabled:opacity-45 px-3.5 py-2 rounded-xl shadow-2xs transition-colors shrink-0 cursor-pointer"
+                      title="Guardar o actualizar esta persona (con su firma) en el directorio permanente"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Guardar en Directorio</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* PERMISO CONCEDIDO A LOS TRABAJADORES (CUADRILLA DE EJECUCIÓN) */}
           <div className="space-y-4 pt-2">
@@ -2027,6 +2203,209 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
               </div>
             </div>
           </div>
+
+          {/* PERSONA QUE AUTORIZA EL TRABAJO */}
+          {(() => {
+            const currentAuth = formData.autorizador || {
+              nombre: "",
+              cedula: "",
+              cargo: "",
+              firmaUrl: "",
+            };
+            const savedStaffMatch = staffList.find(
+              (s) =>
+                (currentAuth.cedula.trim() && s.cedula.trim() === currentAuth.cedula.trim()) ||
+                (currentAuth.nombre.trim() && s.nombre.trim() === currentAuth.nombre.trim())
+            );
+            const savedAutorizadores = staffList.filter((s) => s.rol === "autorizador");
+            const quickList = savedAutorizadores.length > 0 ? savedAutorizadores : staffList;
+
+            return (
+              <div className="pt-4 border-t-2 border-slate-200 space-y-4">
+                <div className="bg-indigo-50 p-4 rounded-xl text-xs sm:text-sm text-indigo-950 leading-snug border-2 border-indigo-200 font-medium">
+                  <strong className="text-indigo-950 font-extrabold">Autorización de Trabajo:</strong> "AUTORIZO LA EJECUCIÓN DE LA ACTIVIDAD DESCRITA EN EL PRESENTE PERMISO DE TRABAJO, VERIFICANDO QUE EL EQUIPO EJECUTOR Y EL ÁREA CUMPLEN CON LAS CONDICIONES DE SEGURIDAD ESTABLECIDAS."
+                </div>
+
+                <div className="border-2 border-indigo-200 rounded-2xl p-5 bg-white grid grid-cols-1 sm:grid-cols-2 gap-5 items-center shadow-xs">
+                  <div className="space-y-3.5">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <Stamp className="w-5 h-5 text-indigo-700" />
+                        <span className="text-sm uppercase font-extrabold text-slate-900 tracking-wide">
+                          Persona que Autoriza el Trabajo
+                        </span>
+                      </div>
+                      {onSaveAutorizadorToStaff && (
+                        <button
+                          type="button"
+                          disabled={!currentAuth.nombre.trim() || !currentAuth.cedula.trim()}
+                          onClick={() => onSaveAutorizadorToStaff(currentAuth)}
+                          className="inline-flex items-center gap-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-45 border border-indigo-200 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
+                        >
+                          <Save className="w-3.5 h-3.5" />
+                          <span>Guardar en Directorio</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs sm:text-sm font-bold text-slate-900 mb-1">
+                        Nombres y Apellidos
+                      </label>
+                      <input
+                        type="text"
+                        value={currentAuth.nombre}
+                        onChange={(e) =>
+                          updateField("autorizador", {
+                            ...currentAuth,
+                            nombre: e.target.value.toUpperCase(),
+                          })
+                        }
+                        placeholder="NOMBRE DE QUIEN AUTORIZA"
+                        className="w-full min-h-[48px] text-base px-3.5 py-2.5 rounded-xl border-2 border-slate-300 bg-white font-extrabold uppercase text-slate-900 focus:border-indigo-700 focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-xs sm:text-sm font-bold text-slate-900 mb-1">
+                          Número de Cédula
+                        </label>
+                        <input
+                          type="text"
+                          value={currentAuth.cedula}
+                          onChange={(e) =>
+                            updateField("autorizador", {
+                              ...currentAuth,
+                              cedula: e.target.value,
+                            })
+                          }
+                          placeholder="C.C."
+                          className="w-full min-h-[48px] text-base px-3 py-2.5 rounded-xl border-2 border-slate-300 bg-white font-semibold text-slate-900 focus:border-indigo-700 focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs sm:text-sm font-bold text-slate-900 mb-1">
+                          Cargo / Área
+                        </label>
+                        <input
+                          type="text"
+                          value={currentAuth.cargo}
+                          onChange={(e) =>
+                            updateField("autorizador", {
+                              ...currentAuth,
+                              cargo: e.target.value,
+                            })
+                          }
+                          placeholder="Jefe de Área / Autorizador"
+                          className="w-full min-h-[48px] text-base px-3 py-2.5 rounded-xl border-2 border-slate-300 bg-white font-medium text-slate-900 focus:border-indigo-700 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Quick select from directory */}
+                    <div className="pt-1 text-xs text-slate-700">
+                      <span className="font-bold text-slate-800 block mb-1">
+                        {savedAutorizadores.length > 0 ? "Autorizadores del directorio:" : "Asignar desde directorio:"}
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {quickList.map((st) => (
+                          <button
+                            key={st.id}
+                            type="button"
+                            onClick={() =>
+                              updateField("autorizador", {
+                                nombre: st.nombre,
+                                cedula: st.cedula,
+                                cargo: st.cargo || "Jefe de Área / Autorizador",
+                                firmaUrl: st.firmaUrl || currentAuth.firmaUrl || "",
+                              })
+                            }
+                            className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200 transition-colors text-xs font-semibold cursor-pointer"
+                          >
+                            {st.nombre}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-3">
+                    <div className="h-36 border-2 border-dashed border-indigo-200 rounded-xl bg-slate-50 flex items-center justify-center overflow-hidden">
+                      {currentAuth.firmaUrl ? (
+                        <img
+                          src={currentAuth.firmaUrl}
+                          alt="Firma de quien autoriza"
+                          className="max-h-32 max-w-full object-contain p-2"
+                        />
+                      ) : (
+                        <div className="text-center p-2 text-slate-400 text-xs sm:text-sm font-semibold">
+                          <PenTool className="w-6 h-6 mx-auto mb-1 opacity-50" />
+                          <span>Firma de quien autoriza pendiente</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onOpenSignModal({
+                            type: "autorizador",
+                            name: currentAuth.nombre || "Persona que Autoriza",
+                          })
+                        }
+                        className="flex-1 inline-flex items-center justify-center gap-2 min-h-[48px] text-sm sm:text-base font-extrabold py-2.5 px-4 rounded-xl text-white bg-indigo-700 hover:bg-indigo-800 shadow-xs transition-all cursor-pointer"
+                      >
+                        <PenTool className="w-4 h-4" />
+                        <span>
+                          {currentAuth.firmaUrl
+                            ? "Actualizar Firma"
+                            : "Firmar Quien Autoriza"}
+                        </span>
+                      </button>
+
+                      {!currentAuth.firmaUrl && savedStaffMatch?.firmaUrl && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateField("autorizador", {
+                              ...currentAuth,
+                              firmaUrl: savedStaffMatch.firmaUrl || "",
+                            })
+                          }
+                          className="min-h-[48px] inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 text-xs sm:text-sm font-extrabold text-slate-900 bg-amber-400 hover:bg-amber-300 border border-amber-500 rounded-xl transition-colors cursor-pointer shrink-0"
+                          title="Cargar la firma guardada en el directorio"
+                        >
+                          <Check className="w-4 h-4" />
+                          <span>Usar firma guardada</span>
+                        </button>
+                      )}
+
+                      {currentAuth.firmaUrl && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm("¿Está seguro de eliminar esta firma?")) {
+                              updateField("autorizador", {
+                                ...currentAuth,
+                                firmaUrl: "",
+                              });
+                            }
+                          }}
+                          className="min-h-[48px] min-w-[48px] flex items-center justify-center border-2 border-red-300 text-red-600 hover:bg-red-50 bg-white rounded-xl transition-colors shrink-0 cursor-pointer"
+                          title="Eliminar Firma"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 

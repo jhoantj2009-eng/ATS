@@ -44,7 +44,8 @@ export function saveHistoryRecord(
 
     const firmasCount =
       Object.keys(formData.firmasTrabajadores || {}).length +
-      (formData.supervisor?.firmaUrl ? 1 : 0);
+      (formData.supervisor?.firmaUrl ? 1 : 0) +
+      (formData.autorizador?.firmaUrl ? 1 : 0);
 
     const recordTitle =
       (formData.tareaGeneral || "").trim() ||
@@ -158,6 +159,12 @@ export function duplicateHistoryRecord(record: ATSHistoryRecord): ATSHistoryReco
     firmasTrabajadores: {},
     supervisor: {
       ...record.formData.supervisor,
+      firmaUrl: "",
+    },
+    autorizador: {
+      nombre: record.formData.autorizador?.nombre || "",
+      cedula: record.formData.autorizador?.cedula || "",
+      cargo: record.formData.autorizador?.cargo || "",
       firmaUrl: "",
     },
   };

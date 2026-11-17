@@ -6,7 +6,7 @@ import { PenTool } from "lucide-react";
 interface ATSPrintFormatProps {
   formData: ATSFormData;
   empresa: EmpresaConfig;
-  onOpenSignModal?: (target: { type: "worker" | "supervisor"; id?: string; name: string }) => void;
+  onOpenSignModal?: (target: { type: "worker" | "supervisor" | "autorizador"; id?: string; name: string }) => void;
   onOpenCompanyModal?: () => void;
   id?: string;
   page?: 1 | 2 | "1" | "2" | "both";
@@ -1204,7 +1204,7 @@ export const ATSPrintFormat: React.FC<ATSPrintFormatProps> = ({
         {/* TABLA: DECLARACIÓN Y AUTORIZACIÓN DEL COORDINADOR / SUPERVISOR SST */}
         <table
           className="ats-table ats-signature-section seccion-contenedor"
-          style={{ ...BASE_TABLE_STYLE, marginBottom: 0, ...ROW_AVOID_BREAK_STYLE }}
+          style={{ ...BASE_TABLE_STYLE, marginBottom: "3px", ...ROW_AVOID_BREAK_STYLE }}
         >
           <colgroup>
             <col style={{ width: "304px" }} />
@@ -1338,6 +1338,168 @@ export const ATSPrintFormat: React.FC<ATSPrintFormatProps> = ({
                       >
                         <PenTool className="w-2.5 h-2.5" />
                         <span>Firma Coordinador</span>
+                      </button>
+                    ) : (
+                      <span style={{ fontSize: "7pt", color: "#cbd5e1" }}>Pendiente</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })()}
+          </tbody>
+        </table>
+
+        {/* TABLA: PERSONA QUE AUTORIZA EL TRABAJO */}
+        <table
+          className="ats-table ats-signature-section seccion-contenedor"
+          style={{ ...BASE_TABLE_STYLE, marginBottom: 0, ...ROW_AVOID_BREAK_STYLE }}
+        >
+          <colgroup>
+            <col style={{ width: "304px" }} />
+            <col style={{ width: "190px" }} />
+            <col style={{ width: "266px" }} />
+          </colgroup>
+          <thead>
+            <tr style={ROW_AVOID_BREAK_STYLE}>
+              <td
+                colSpan={3}
+                className="ats-declaration-cell"
+                style={{
+                  border: CELL_BORDER,
+                  backgroundColor: HEADER_BG,
+                  padding: "2.5px 4px",
+                  fontSize: "6.5pt",
+                  lineHeight: 1.12,
+                  textAlign: "justify",
+                  color: "#111827",
+                }}
+              >
+                <strong
+                  style={{
+                    display: "block",
+                    textTransform: "uppercase",
+                    marginBottom: "1px",
+                    fontWeight: 800,
+                    color: "#000000",
+                    fontSize: "7pt",
+                  }}
+                >
+                  FIRMA DE LA PERSONA QUE AUTORIZA EL TRABAJO (NOMBRE, CARGO, NRO. DE CÉDULA Y FIRMA)
+                </strong>
+                "AUTORIZO LA EJECUCIÓN DE LA ACTIVIDAD DESCRITA EN EL PRESENTE ANÁLISIS DE TRABAJO SEGURO, VERIFICANDO QUE EL PERSONAL EJECUTOR Y EL ÁREA CUMPLEN CON LOS CONTROLES Y CONDICIONES DE SEGURIDAD ESTABLECIDAS."
+              </td>
+            </tr>
+            <tr style={ROW_AVOID_BREAK_STYLE}>
+              <th style={HEADER_CELL_LEFT_STYLE}>NOMBRE Y CARGO</th>
+              <th style={HEADER_CELL_STYLE}>CÉDULA</th>
+              <th style={HEADER_CELL_STYLE}>FIRMA QUIEN AUTORIZA</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(() => {
+              const auth = formData.autorizador || {
+                nombre: "",
+                cedula: "",
+                cargo: "",
+                firmaUrl: "",
+              };
+              const hasAuthName = Boolean(auth.nombre && auth.nombre.trim());
+              const hasAuthCargo = Boolean(auth.cargo && auth.cargo.trim());
+              const { nameStyle, cargoStyle } = getDynamicSupervisorStyle(
+                auth.nombre || "POR DEFINIR",
+                auth.cargo || "Persona que Autoriza el Trabajo"
+              );
+
+              return (
+                <tr style={{ height: "36px", ...ROW_AVOID_BREAK_STYLE }}>
+                  <td
+                    style={{
+                      ...DATA_CELL_STYLE,
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      textAlign: "left",
+                      padding: "2px 4px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: hasAuthName ? "#000000" : "#6b7280",
+                        ...nameStyle,
+                      }}
+                    >
+                      {hasAuthName ? auth.nombre : "POR ASIGNAR"}
+                    </div>
+                    <div
+                      style={{
+                        fontWeight: 600,
+                        color: "#4b5563",
+                        textTransform: "none",
+                        marginTop: "2px",
+                        ...cargoStyle,
+                      }}
+                    >
+                      {hasAuthCargo ? auth.cargo : "Responsable que Autoriza el Trabajo"}
+                    </div>
+                  </td>
+                  <td
+                    style={{
+                      ...DATA_CELL_STYLE,
+                      textAlign: "center",
+                      fontFamily: "monospace",
+                      padding: "2px 4px",
+                      fontSize: "7.5pt",
+                    }}
+                  >
+                    {auth.cedula?.trim() ? auth.cedula : "—"}
+                  </td>
+                  <td
+                    style={{
+                      ...DATA_CELL_STYLE,
+                      padding: 0,
+                      textAlign: "center",
+                      verticalAlign: "middle",
+                    }}
+                  >
+                    {auth.firmaUrl ? (
+                      <div
+                        className="ats-signature-box"
+                        style={{
+                          height: "32px",
+                          maxHeight: "32px",
+                          overflow: "hidden",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <img
+                          src={auth.firmaUrl}
+                          alt="Firma de quien autoriza"
+                          className="ats-signature-img"
+                          style={{
+                            maxHeight: "30px",
+                            maxWidth: "120px",
+                            width: "auto",
+                            height: "auto",
+                            objectFit: "contain",
+                            display: "block",
+                            margin: "0 auto",
+                          }}
+                        />
+                      </div>
+                    ) : onOpenSignModal ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onOpenSignModal({
+                            type: "autorizador",
+                            name: auth.nombre || "Persona que Autoriza",
+                          })
+                        }
+                        className="no-print inline-flex items-center gap-1 text-[7pt] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2 py-0.5 rounded cursor-pointer transition-colors"
+                      >
+                        <PenTool className="w-2.5 h-2.5" />
+                        <span>Firmar Autorización</span>
                       </button>
                     ) : (
                       <span style={{ fontSize: "7pt", color: "#cbd5e1" }}>Pendiente</span>

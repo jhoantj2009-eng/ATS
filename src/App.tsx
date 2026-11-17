@@ -85,6 +85,13 @@ function ATSAppContent() {
           ...INITIAL_FORM_DATA.supervisor,
           ...(parsed.supervisor || {}),
         },
+        autorizador: {
+          nombre: "",
+          cedula: "",
+          cargo: "",
+          firmaUrl: "",
+          ...(parsed.autorizador || {}),
+        },
         eppsSeleccionados: {
           ...INITIAL_FORM_DATA.eppsSeleccionados,
           ...(parsed.eppsSeleccionados || {}),
@@ -179,7 +186,7 @@ function ATSAppContent() {
     }
   });
   const [signTarget, setSignTarget] = useState<{
-    type: "worker" | "supervisor";
+    type: "worker" | "supervisor" | "autorizador";
     id?: string;
     name: string;
   } | null>(null);
@@ -281,6 +288,13 @@ function ATSAppContent() {
             supervisor: {
               ...INITIAL_FORM_DATA.supervisor,
               ...(idbBackup.formData.supervisor || {}),
+            },
+            autorizador: {
+              nombre: "",
+              cedula: "",
+              cargo: "",
+              firmaUrl: "",
+              ...(idbBackup.formData.autorizador || {}),
             },
             eppsSeleccionados: {
               ...INITIAL_FORM_DATA.eppsSeleccionados,
@@ -818,6 +832,66 @@ function ATSAppContent() {
     [updateStaffListImmediately]
   );
 
+  const handleSaveAutorizadorToStaff = useCallback(
+    (auth: { nombre: string; cedula: string; cargo: string; firmaUrl: string }) => {
+      const cleanNombre = auth.nombre.trim().toUpperCase();
+      const cleanCedula = auth.cedula.trim();
+      const cleanCargo = auth.cargo.trim() || "Jefe de Área / Autorizador";
+
+      if (!cleanNombre || !cleanCedula) {
+        showToast("Ingrese nombre y número de cédula para guardar en el directorio.");
+        return;
+      }
+
+      updateStaffListImmediately((prev) => {
+        const existingIndex = prev.findIndex(
+          (m) =>
+            (cleanCedula && m.cedula.trim() === cleanCedula) ||
+            (cleanNombre && m.nombre.trim() === cleanNombre)
+        );
+
+        if (existingIndex >= 0) {
+          return prev.map((m, idx) =>
+            idx === existingIndex
+              ? {
+                  ...m,
+                  nombre: cleanNombre,
+                  cedula: cleanCedula,
+                  cargo: cleanCargo,
+                  rol: "autorizador",
+                  firmaUrl: auth.firmaUrl || m.firmaUrl || "",
+                }
+              : m
+          );
+        }
+
+        const newAuthMember: PersonalMember = {
+          id: "p_auth_" + Date.now(),
+          nombre: cleanNombre,
+          cedula: cleanCedula,
+          cargo: cleanCargo,
+          arl: "SURA ARL",
+          rol: "autorizador",
+          firmaUrl: auth.firmaUrl || "",
+        };
+        return [...prev, newAuthMember];
+      });
+
+      handleFormDataChange((prev) => ({
+        ...prev,
+        autorizador: {
+          nombre: cleanNombre,
+          cedula: cleanCedula,
+          cargo: cleanCargo,
+          firmaUrl: auth.firmaUrl || prev.autorizador?.firmaUrl || "",
+        },
+      }));
+
+      showToast(`¡"${cleanNombre}" guardado en el directorio como Quien Autoriza!`);
+    },
+    [updateStaffListImmediately, handleFormDataChange]
+  );
+
   // Signature save handler
   const handleSaveSignature = (dataUrl: string) => {
     if (!signTarget) return;
@@ -867,6 +941,34 @@ function ATSAppContent() {
         )
       );
       showToast("Firma registrada y guardada para el Supervisor SST");
+    } else if (signTarget.type === "autorizador") {
+      const curAuth = latestStateRef.current.formData.autorizador || {
+        nombre: "",
+        cedula: "",
+        cargo: "",
+        firmaUrl: "",
+      };
+      handleFormDataChange((prev) => ({
+        ...prev,
+        autorizador: {
+          nombre: prev.autorizador?.nombre || "",
+          cedula: prev.autorizador?.cedula || "",
+          cargo: prev.autorizador?.cargo || "",
+          firmaUrl: dataUrl,
+        },
+      }));
+      // Sincronizar también en el directorio si ya existe registrado
+      if (curAuth.cedula.trim() || curAuth.nombre.trim()) {
+        updateStaffListImmediately((prev) =>
+          prev.map((member) =>
+            (curAuth.cedula.trim() !== "" && member.cedula.trim() === curAuth.cedula.trim()) ||
+            (curAuth.nombre.trim() !== "" && member.nombre.trim() === curAuth.nombre.trim())
+              ? { ...member, firmaUrl: dataUrl }
+              : member
+          )
+        );
+      }
+      showToast("Firma registrada y guardada para quien autoriza el trabajo");
     }
     setSignTarget(null);
   };
@@ -971,7 +1073,17 @@ function ATSAppContent() {
         JSON.stringify({ id: record.formData.id, altura: true, tipo: true })
       );
     } catch {}
-    handleFormDataChange(record.formData);
+    handleFormDataChange({
+      ...INITIAL_FORM_DATA,
+      ...record.formData,
+      autorizador: {
+        nombre: "",
+        cedula: "",
+        cargo: "",
+        firmaUrl: "",
+        ...(record.formData.autorizador || {}),
+      },
+    });
     if (record.empresa) {
       setEmpresa(record.empresa);
       if (record.empresa.logoUrl) {
@@ -1016,7 +1128,16 @@ function ATSAppContent() {
         ...formData.supervisor,
         firmaUrl: "",
       },
-      trabajadores: [...staffList],
+      autorizador: {
+        nombre: formData.autorizador?.nombre || "",
+        cedula: formData.autorizador?.cedula || "",
+        cargo: formData.autorizador?.cargo || "",
+        firmaUrl: "",
+      },
+      trabajadores: (() => {
+        const crew = staffList.filter((m) => m.rol !== "autorizador");
+        return crew.length > 0 ? crew : [...staffList];
+      })(),
     });
 
     showToast("¡Nuevo ATS iniciado! Se conservó la información de la empresa y formato.");
@@ -1318,6 +1439,7 @@ function ATSAppContent() {
                 await syncCompanyTemplateToServer(updated);
               }}
               onSyncWorkerToStaff={handleSyncWorkerToStaff}
+              onSaveAutorizadorToStaff={handleSaveAutorizadorToStaff}
             />
 
 
@@ -1493,16 +1615,22 @@ function ATSAppContent() {
         title={
           signTarget?.type === "supervisor"
             ? "Firma Digital del Coordinador / Supervisor SST (Emisor)"
+            : signTarget?.type === "autorizador"
+            ? `Firma Digital de Quien Autoriza: ${signTarget?.name || ""}`
             : `Firma Digital del Trabajador: ${signTarget?.name}`
         }
         subtitle={
           signTarget?.type === "supervisor"
             ? "Verificación y autorización del inicio seguro de labores (Res. 4272/2021)"
+            : signTarget?.type === "autorizador"
+            ? "Autorización formal para la ejecución segura del trabajo en el ATS"
             : "Compromiso de cumplimiento de normas SST y autocuidado"
         }
         initialSignature={
           signTarget?.type === "supervisor"
             ? formData.supervisor.firmaUrl
+            : signTarget?.type === "autorizador"
+            ? formData.autorizador?.firmaUrl
             : signTarget?.id
             ? formData.firmasTrabajadores[signTarget.id]
             : undefined
@@ -1524,6 +1652,11 @@ function ATSAppContent() {
         onUpdateSupervisor={(updatedSup) => {
           handleFormDataChange((prev) => ({ ...prev, supervisor: updatedSup }));
           showToast("Coordinador SST actualizado con éxito");
+        }}
+        autorizador={formData.autorizador}
+        onUpdateAutorizador={(updatedAuth) => {
+          handleFormDataChange((prev) => ({ ...prev, autorizador: updatedAuth }));
+          showToast("Persona que autoriza actualizada con éxito");
         }}
         onUpdateActiveWorkers={(updatedWorkers) => {
           handleFormDataChange((prev) => {

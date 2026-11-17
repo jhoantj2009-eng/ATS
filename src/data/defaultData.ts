@@ -282,4 +282,10 @@ export const INITIAL_FORM_DATA: ATSFormData = {
     cargo: "Coordinador / Supervisor SST",
     firmaUrl: "",
   },
+  autorizador: {
+    nombre: "",
+    cedula: "",
+    cargo: "",
+    firmaUrl: "",
+  },
 };
