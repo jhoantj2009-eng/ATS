@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { ATSHistoryRecord } from "../types";
 import {
   getHistoryRecords,
+  getAllHistoryRecordsCombined,
   deleteHistoryRecord,
   duplicateHistoryRecord,
 } from "../utils/historyStorage";
@@ -35,6 +36,7 @@ interface ATSHistoryModalProps {
   onNewATS: () => void;
   currentATSId?: string;
   onSaveCurrentATS?: () => void;
+  onDeleteRecord?: (recordId: string) => void;
 }
 
 export const ATSHistoryModal: React.FC<ATSHistoryModalProps> = ({
@@ -44,6 +46,7 @@ export const ATSHistoryModal: React.FC<ATSHistoryModalProps> = ({
   onNewATS,
   currentATSId,
   onSaveCurrentATS,
+  onDeleteRecord,
 }) => {
   const [records, setRecords] = useState<ATSHistoryRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -53,7 +56,7 @@ export const ATSHistoryModal: React.FC<ATSHistoryModalProps> = ({
     text: string;
   } | null>(null);
 
-  // Cargar registros al abrir el modal
+  // Cargar registros al abrir el modal (combinando localStorage + IndexedDB)
   useEffect(() => {
     if (isOpen) {
       refreshList();
@@ -63,8 +66,13 @@ export const ATSHistoryModal: React.FC<ATSHistoryModalProps> = ({
   }, [isOpen]);
 
   const refreshList = () => {
-    const list = getHistoryRecords();
-    setRecords(list);
+    const syncList = getHistoryRecords();
+    setRecords(syncList);
+    getAllHistoryRecordsCombined()
+      .then((combined) => {
+        setRecords(combined);
+      })
+      .catch(() => {});
   };
 
   const showNotice = (type: "success" | "error", text: string) => {
@@ -90,6 +98,7 @@ export const ATSHistoryModal: React.FC<ATSHistoryModalProps> = ({
   const handleDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     deleteHistoryRecord(id);
+    onDeleteRecord?.(id);
     refreshList();
     setDeleteConfirmId(null);
     showNotice("success", "El registro ha sido eliminado del historial correctamente.");
@@ -449,7 +458,7 @@ export const ATSHistoryModal: React.FC<ATSHistoryModalProps> = ({
         <div className="p-3 sm:p-4 border-t border-slate-200 bg-slate-50/80 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span>Almacenamiento local privado en este navegador (localStorage)</span>
+            <span>Almacenamiento persistente sincronizado (LocalStorage + IndexedDB + Servidor)</span>
           </div>
 
           <div className="flex items-center gap-2">

@@ -27,6 +27,8 @@ interface EmailModalProps {
   formData: ATSFormData;
   empresa: EmpresaConfig;
   onShowToast: (msg: string) => void;
+  defaultRecipient?: string;
+  onSaveRecipientPreference?: (email: string) => void;
 }
 
 export const EmailModal: React.FC<EmailModalProps> = ({
@@ -35,9 +37,14 @@ export const EmailModal: React.FC<EmailModalProps> = ({
   formData,
   empresa,
   onShowToast,
+  defaultRecipient,
+  onSaveRecipientPreference,
 }) => {
-  // Pre-fill recipient email from localStorage or supervisor or default
+  // Pre-fill recipient email from user preferences, localStorage, or default
   const [recipient, setRecipient] = useState<string>(() => {
+    if (defaultRecipient && defaultRecipient.trim()) {
+      return defaultRecipient.trim();
+    }
     try {
       const saved = localStorage.getItem("ats_last_email_recipient");
       if (saved) return saved;
@@ -65,6 +72,9 @@ export const EmailModal: React.FC<EmailModalProps> = ({
   // Initialize or reset subject & message when modal opens
   useEffect(() => {
     if (isOpen) {
+      if (defaultRecipient && defaultRecipient.trim()) {
+        setRecipient(defaultRecipient.trim());
+      }
       const defaultSubject = `ATS ${empresa.codigoFormato || "F-SST-045"} - ${
         formData.tareaGeneral || "Labor Técnica"
       } - ${formData.fechaDiligenciamiento || new Date().toLocaleDateString("es-CO")}`;
@@ -83,7 +93,7 @@ export const EmailModal: React.FC<EmailModalProps> = ({
       // Pre-generate the PDF document smoothly
       preparePDF();
     }
-  }, [isOpen, formData, empresa]);
+  }, [isOpen, formData, empresa, defaultRecipient]);
 
   const preparePDF = async (): Promise<GeneratedPDFDoc | null> => {
     setIsGeneratingDoc(true);
@@ -122,9 +132,11 @@ export const EmailModal: React.FC<EmailModalProps> = ({
       return;
     }
 
+    const cleanRecipient = recipient.trim();
     try {
-      localStorage.setItem("ats_last_email_recipient", recipient.trim());
+      localStorage.setItem("ats_last_email_recipient", cleanRecipient);
     } catch {}
+    onSaveRecipientPreference?.(cleanRecipient);
 
     setIsSending(true);
     setErrorMessage(null);

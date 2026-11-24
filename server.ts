@@ -7,6 +7,7 @@ import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import nodemailer, { Transporter } from "nodemailer";
 
 import fs from "fs";
+import crypto from "crypto";
 
 dotenv.config();
 
@@ -17,6 +18,10 @@ app.use(express.json({ limit: "15mb" }));
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const TEMPLATE_CONFIG_FILE = path.join(DATA_DIR, "company_template.json");
+const USER_STATES_FILE = path.join(DATA_DIR, "user_states.json");
+const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || "ats-seguridad-laboral";
+const FIREBASE_CERTS_URL =
+  "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com";
 
 if (!fs.existsSync(DATA_DIR)) {
   try {
@@ -24,6 +29,128 @@ if (!fs.existsSync(DATA_DIR)) {
   } catch (e) {
     console.error("Error creating data directory:", e);
   }
+}
+
+// Atomic JSON write to avoid file corruption during concurrent requests or restarts
+function writeJsonAtomic(filePath: string, data: unknown): void {
+  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf-8");
+  fs.renameSync(tmpPath, filePath);
+}
+
+// Strip prototype-pollution keys before storing arbitrary JSON objects
+function sanitizePlainJson<T>(value: T): T {
+  const raw = JSON.stringify(value);
+  return JSON.parse(raw, (key, val) => {
+    if (key === "__proto__" || key === "constructor" || key === "prototype") {
+      return undefined;
+    }
+    return val;
+  });
+}
+
+// Cached Google X.509 public certs for cryptographic verification of Firebase ID tokens
+let cachedFirebaseCerts: Record<string, string> | null = null;
+let cachedFirebaseCertsExpiresAt = 0;
+
+async function getFirebasePublicCerts(): Promise<Record<string, string>> {
+  const now = Date.now();
+  if (cachedFirebaseCerts && now < cachedFirebaseCertsExpiresAt) {
+    return cachedFirebaseCerts;
+  }
+  const res = await fetch(FIREBASE_CERTS_URL);
+  if (!res.ok) {
+    throw new Error(`Unable to fetch Firebase public keys (${res.status})`);
+  }
+  const certs = (await res.json()) as Record<string, string>;
+  const cacheControl = res.headers.get("cache-control") || "";
+  const maxAgeMatch = cacheControl.match(/max-age=(\d+)/i);
+  const ttlMs = maxAgeMatch ? Math.max(60, parseInt(maxAgeMatch[1], 10)) * 1000 : 3600 * 1000;
+  cachedFirebaseCerts = certs;
+  cachedFirebaseCertsExpiresAt = now + ttlMs;
+  return certs;
+}
+
+function decodeBase64Url(segment: string): Buffer {
+  const normalized = segment.replace(/-/g, "+").replace(/_/g, "/");
+  const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
+  return Buffer.from(normalized + padding, "base64");
+}
+
+async function verifyFirebaseIdToken(
+  authHeader?: string
+): Promise<{ uid: string; email?: string } | null> {
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return null;
+  }
+  const token = authHeader.slice(7).trim();
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+
+  try {
+    const [headerB64, payloadB64, signatureB64] = parts;
+    const header = JSON.parse(decodeBase64Url(headerB64).toString("utf-8"));
+    const payload = JSON.parse(decodeBase64Url(payloadB64).toString("utf-8"));
+
+    if (header?.alg !== "RS256" || typeof header?.kid !== "string") {
+      return null;
+    }
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const expectedIss = `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`;
+    if (
+      payload?.aud !== FIREBASE_PROJECT_ID ||
+      payload?.iss !== expectedIss ||
+      typeof payload?.sub !== "string" ||
+      !payload.sub.trim() ||
+      payload.sub.length > 128 ||
+      typeof payload?.exp !== "number" ||
+      payload.exp <= nowSec ||
+      typeof payload?.iat !== "number" ||
+      payload.iat > nowSec + 300
+    ) {
+      return null;
+    }
+
+    const certs = await getFirebasePublicCerts();
+    const cert = Object.prototype.hasOwnProperty.call(certs, header.kid) ? certs[header.kid] : null;
+    if (!cert) return null;
+
+    const verifier = crypto.createVerify("RSA-SHA256");
+    verifier.update(`${headerB64}.${payloadB64}`);
+    verifier.end();
+    const isValidSignature = verifier.verify(cert, decodeBase64Url(signatureB64));
+    if (!isValidSignature) return null;
+
+    return {
+      uid: payload.sub.trim(),
+      email: typeof payload.email === "string" ? payload.email : undefined,
+    };
+  } catch (err) {
+    console.warn("Firebase token verification failed:", err);
+    return null;
+  }
+}
+
+function readUserStatesStore(): Record<string, any> {
+  const store: Record<string, any> = Object.create(null);
+  if (!fs.existsSync(USER_STATES_FILE)) {
+    return store;
+  }
+  try {
+    const raw = fs.readFileSync(USER_STATES_FILE, "utf-8");
+    const parsed = JSON.parse(raw || "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      for (const [k, v] of Object.entries(parsed)) {
+        if (k !== "__proto__" && k !== "constructor" && k !== "prototype") {
+          store[k] = v;
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error reading user_states.json:", err);
+  }
+  return store;
 }
 
 // Global persistent template endpoints so shared links always show the official logo
@@ -59,7 +186,7 @@ app.post("/api/company-config", (req, res) => {
       updatedAt: new Date().toISOString(),
     };
 
-    fs.writeFileSync(TEMPLATE_CONFIG_FILE, JSON.stringify(currentConfig, null, 2), "utf-8");
+    writeJsonAtomic(TEMPLATE_CONFIG_FILE, currentConfig);
     console.log(`[Template Server] Global template and logo updated for: ${currentConfig.nombreEmpresa} (Código: ${currentConfig.codigoFormato})`);
 
     return res.json({
@@ -793,7 +920,7 @@ app.post("/api/sync-ats", (req, res) => {
       (a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime()
     );
 
-    fs.writeFileSync(SYNCED_RECORDS_FILE, JSON.stringify(mergedList, null, 2), "utf-8");
+    writeJsonAtomic(SYNCED_RECORDS_FILE, mergedList);
 
     return res.json({
       success: true,
@@ -804,6 +931,129 @@ app.post("/api/sync-ats", (req, res) => {
   } catch (err: any) {
     console.error("Error syncing ATS records:", err);
     return res.status(500).json({ error: "Failed to sync ATS records" });
+  }
+});
+
+// Delete a synced ATS history record by ID (authenticated)
+app.delete("/api/sync-ats/:id", async (req, res) => {
+  try {
+    const verifiedUser = await verifyFirebaseIdToken(req.headers.authorization);
+    if (!verifiedUser) {
+      return res.status(401).json({ error: "Autenticación requerida" });
+    }
+
+    const recordId = String(req.params.id || "").trim();
+    if (!/^[a-zA-Z0-9_.-]{1,128}$/.test(recordId)) {
+      return res.status(400).json({ error: "Identificador de registro inválido" });
+    }
+
+    if (!fs.existsSync(SYNCED_RECORDS_FILE)) {
+      return res.json({ success: true, deleted: false });
+    }
+
+    const raw = fs.readFileSync(SYNCED_RECORDS_FILE, "utf-8");
+    const existingRecords = JSON.parse(raw || "[]");
+    if (!Array.isArray(existingRecords)) {
+      return res.json({ success: true, deleted: false });
+    }
+
+    const filtered = existingRecords.filter((rec: any) => rec?.id !== recordId);
+    if (filtered.length !== existingRecords.length) {
+      writeJsonAtomic(SYNCED_RECORDS_FILE, filtered);
+      return res.json({ success: true, deleted: true });
+    }
+    return res.json({ success: true, deleted: false });
+  } catch (err) {
+    console.error("Error deleting synced ATS record:", err);
+    return res.status(500).json({ error: "Failed to delete synced ATS record" });
+  }
+});
+
+// Persistent user workspace & preferences endpoints (authenticated via Firebase ID Token)
+app.get("/api/user-state", async (req, res) => {
+  try {
+    const verifiedUser = await verifyFirebaseIdToken(req.headers.authorization);
+    if (!verifiedUser) {
+      return res.status(401).json({ error: "Autenticación requerida" });
+    }
+
+    const store = readUserStatesStore();
+    const userEntry = Object.prototype.hasOwnProperty.call(store, verifiedUser.uid)
+      ? store[verifiedUser.uid]
+      : null;
+
+    return res.json({
+      success: true,
+      state: userEntry ? userEntry.state : null,
+      updatedAt: userEntry ? userEntry.updatedAt : null,
+    });
+  } catch (err) {
+    console.error("Error reading persisted user state:", err);
+    return res.status(500).json({ error: "No se pudo leer el estado persistente del usuario" });
+  }
+});
+
+app.post("/api/user-state", async (req, res) => {
+  try {
+    const verifiedUser = await verifyFirebaseIdToken(req.headers.authorization);
+    if (!verifiedUser) {
+      return res.status(401).json({ error: "Autenticación requerida" });
+    }
+
+    const incomingState = req.body?.state;
+    const forceOverwrite = Boolean(req.body?.force);
+
+    if (
+      !incomingState ||
+      typeof incomingState !== "object" ||
+      Array.isArray(incomingState) ||
+      !incomingState.formData ||
+      typeof incomingState.formData !== "object"
+    ) {
+      return res.status(400).json({ error: "Estructura de estado de usuario inválida" });
+    }
+
+    const cleanState = sanitizePlainJson(incomingState);
+    const incomingUpdatedAtMs =
+      typeof cleanState.updatedAtMs === "number" && Number.isFinite(cleanState.updatedAtMs)
+        ? cleanState.updatedAtMs
+        : Date.now();
+
+    const store = readUserStatesStore();
+    const existing = Object.prototype.hasOwnProperty.call(store, verifiedUser.uid)
+      ? store[verifiedUser.uid]
+      : null;
+    const existingUpdatedAtMs = Number(existing?.state?.updatedAtMs || 0);
+
+    if (!forceOverwrite && existing && existingUpdatedAtMs > incomingUpdatedAtMs) {
+      return res.json({
+        success: true,
+        skippedOlder: true,
+        updatedAtMs: existingUpdatedAtMs,
+      });
+    }
+
+    const savedAtIso = new Date().toISOString();
+    store[verifiedUser.uid] = {
+      uid: verifiedUser.uid,
+      email: verifiedUser.email || "",
+      updatedAt: savedAtIso,
+      state: {
+        ...cleanState,
+        updatedAtMs: incomingUpdatedAtMs,
+      },
+    };
+
+    writeJsonAtomic(USER_STATES_FILE, store);
+
+    return res.json({
+      success: true,
+      updatedAt: savedAtIso,
+      updatedAtMs: incomingUpdatedAtMs,
+    });
+  } catch (err) {
+    console.error("Error saving persisted user state:", err);
+    return res.status(500).json({ error: "No se pudo guardar el estado persistente del usuario" });
   }
 });
 

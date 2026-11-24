@@ -2,17 +2,17 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   ATSFormData,
   ATSHistoryRecord,
+  ATSSectionKey,
   EmpresaConfig,
+  PersistedUserState,
   PersonalMember,
+  UserPreferences,
 } from "./types";
 import {
-  DEFAULT_EMPRESA,
   DEFAULT_LOGO_SVG,
   INITIAL_FORM_DATA,
-  INITIAL_STAFF,
 } from "./data/defaultData";
 import {
-  getSavedLogo,
   saveLogoToStorage,
   syncCompanyTemplateToServer,
   fetchCompanyTemplateFromServer,
@@ -26,143 +26,81 @@ import { AppSheetGuideModal } from "./components/AppSheetGuideModal";
 import { AccessGuard, useAuth } from "./components/AccessGuard";
 import { EmailModal } from "./components/EmailModal";
 import { ATSHistoryModal } from "./components/ATSHistoryModal";
+import { PreferencesBackupModal } from "./components/PreferencesBackupModal";
 import {
   PWAInstallButton,
   PWAInstallModal,
   PWAInstallFloatingPrompt,
 } from "./components/PWAInstallButton";
-import { getHistoryRecords, saveHistoryRecord } from "./utils/historyStorage";
+import {
+  getHistoryRecords,
+  getAllHistoryRecordsCombined,
+  mergeHistoryRecords,
+  saveHistoryRecord,
+} from "./utils/historyStorage";
+import {
+  STORAGE_SCHEMA_VERSION,
+  loadLocalWorkspaceSync,
+  saveWorkspaceToLocalStorage,
+  saveWorkspaceToIDB,
+  hydrateWorkspaceAcrossLayers,
+  saveUserStateToServer,
+  fetchSyncedHistoryFromServer,
+  deleteSyncedHistoryRecordOnServer,
+  exportFullWorkspaceBackup,
+  parseFullWorkspaceBackup,
+  mergeStaffLists,
+} from "./utils/persistentStorage";
 import { exportToPDF, printDirect } from "./utils/pdfExport";
 import { useNetworkSync } from "./hooks/useNetworkSync";
 import { generateOfflineATS } from "./utils/offlineGenerator";
-import { saveAppSettingsToIDB, getAppSettingsFromIDB } from "./utils/indexedDB";
 import {
   FileDown,
   Printer,
-  Sparkles,
   Users,
   Building,
-  HelpCircle,
   Eye,
   Edit3,
-  ShieldCheck,
   CheckCircle2,
-  AlertCircle,
-  Smartphone,
   Share2,
-  Settings,
   PlusCircle,
-  RefreshCw,
   Save,
-  Cloud,
-  Lock,
   Mail,
   History,
-  Wifi,
-  WifiOff,
-  CloudUpload,
-  Check,
   MoreVertical,
-  Menu,
   X,
-  ChevronRight,
-  ExternalLink,
   LogOut,
+  SlidersHorizontal,
 } from "lucide-react";
 
 function ATSAppContent() {
-  // Local storage loaded states with fallbacks and safe merge
-  const [formData, setFormData] = useState<ATSFormData>(() => {
-    try {
-      const saved = localStorage.getItem("ats_form_data");
-      if (!saved) return INITIAL_FORM_DATA;
-      const parsed = JSON.parse(saved);
-      if (!parsed || typeof parsed !== "object") return INITIAL_FORM_DATA;
-      return {
-        ...INITIAL_FORM_DATA,
-        ...parsed,
-        supervisor: {
-          ...INITIAL_FORM_DATA.supervisor,
-          ...(parsed.supervisor || {}),
-        },
-        autorizador: {
-          nombre: "",
-          cedula: "",
-          cargo: "",
-          firmaUrl: "",
-          ...(parsed.autorizador || {}),
-        },
-        eppsSeleccionados: {
-          ...INITIAL_FORM_DATA.eppsSeleccionados,
-          ...(parsed.eppsSeleccionados || {}),
-        },
-      };
-    } catch {
-      return INITIAL_FORM_DATA;
-    }
-  });
+  // Auth & User from Firebase (disponible primero para segmentar y sincronizar persistencia por usuario)
+  const { currentUser, signOutUser } = useAuth();
 
-  const [empresa, setEmpresa] = useState<EmpresaConfig>(() => {
-    try {
-      const savedLogo = getSavedLogo();
-      const saved = localStorage.getItem("ats_empresa_config");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        // Automatic upgrade from legacy defaults while preserving custom user edits
-        if (!parsed.codigoFormato || parsed.codigoFormato === "F-SST-044") {
-          parsed.codigoFormato = "F-SST-045";
-        }
-        if (!parsed.version || parsed.version === "1") {
-          parsed.version = "01";
-        }
-        if (!parsed.vigencia || parsed.vigencia === "2026-12-31") {
-          parsed.vigencia = "02/09/2026";
-        }
-        if (
-          !parsed.logoUrl ||
-          parsed.logoUrl.includes("unsplash.com") ||
-          parsed.logoUrl.includes("INGENIER%C3%8DA%20%26%20SST") ||
-          parsed.logoUrl.includes("INGENIERÍA & SST") ||
-          parsed.logoUrl.includes("inveasas") ||
-          parsed.logoUrl.includes("Atom%20Orbits")
-        ) {
-          parsed.logoUrl = savedLogo;
-        }
-        if (
-          parsed.nombreEmpresa === "INVEASAS S.A.S." ||
-          parsed.nombreEmpresa === "INVESTIGACIÓN ENERGÉTICA APLICADA S.A.S" ||
-          !parsed.nombreEmpresa
-        ) {
-          parsed.nombreEmpresa = "DCM";
-        }
-        return parsed;
-      }
-      return {
-        ...DEFAULT_EMPRESA,
-        logoUrl: savedLogo,
-      };
-    } catch {
-      return DEFAULT_EMPRESA;
-    }
-  });
+  // Carga inicial síncrona unificada desde LocalStorage (con migración automática de esquema)
+  const initialLocalRef = useRef<ReturnType<typeof loadLocalWorkspaceSync> | null>(null);
+  if (!initialLocalRef.current) {
+    initialLocalRef.current = loadLocalWorkspaceSync(currentUser?.uid);
+  }
+  const initialLocal = initialLocalRef.current;
 
-  const [staffList, setStaffList] = useState<PersonalMember[]>(() => {
-    try {
-      const saved = localStorage.getItem("ats_staff_list");
-      return saved ? JSON.parse(saved) : INITIAL_STAFF;
-    } catch {
-      return INITIAL_STAFF;
-    }
-  });
+  const [formData, setFormData] = useState<ATSFormData>(initialLocal.state.formData);
+  const [empresa, setEmpresa] = useState<EmpresaConfig>(initialLocal.state.empresa);
+  const [staffList, setStaffList] = useState<PersonalMember[]>(initialLocal.state.staffList);
+  const [preferences, setPreferences] = useState<UserPreferences>(initialLocal.state.preferences);
+  const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(
+    initialLocal.state.currentHistoryId
+  );
+
+  // Preferencias derivadas con persistencia automática
+  const viewMode = preferences.viewMode;
+  const activeSection = preferences.activeSection;
+  const previewZoomMode = preferences.previewZoomMode;
 
   // UI States
-  const [viewMode, setViewMode] = useState<"form" | "preview">("form");
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  // Auth & User from Firebase
-  const { currentUser, signOutUser } = useAuth();
 
   // Modals
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
@@ -170,19 +108,13 @@ function ATSAppContent() {
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [isPreferencesModalOpen, setIsPreferencesModalOpen] = useState(false);
   const [isPWAModalOpen, setIsPWAModalOpen] = useState(false);
   const [historyCount, setHistoryCount] = useState<number>(() => {
     try {
       return getHistoryRecords().length;
     } catch {
       return 0;
-    }
-  });
-  const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem("ats_current_history_id") || null;
-    } catch {
-      return null;
     }
   });
   const [signTarget, setSignTarget] = useState<{
@@ -195,14 +127,13 @@ function ATSAppContent() {
   const [isNavMenuOpen, setIsNavMenuOpen] = useState(false);
 
   // Responsive PDF Preview scaling for iPhone / mobile screens
-  const [previewZoomMode, setPreviewZoomMode] = useState<"fit" | "actual">("fit");
   const [previewScale, setPreviewScale] = useState<number>(1);
   const [previewScaledHeight, setPreviewScaledHeight] = useState<number | null>(null);
   const previewViewportRef = useRef<HTMLDivElement | null>(null);
   const previewCanvasRef = useRef<HTMLDivElement | null>(null);
 
   // PWA Network Sync & Offline State
-  const { isOnline, pendingCount, isSyncing, syncNow, refreshPendingCount } = useNetworkSync();
+  const { isOnline, pendingCount, syncNow, refreshPendingCount } = useNetworkSync();
 
   // Auto-Save Status tracking
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">("saved");
@@ -216,182 +147,287 @@ function ATSAppContent() {
     }
   });
 
-  const latestStateRef = useRef({ formData, empresa, staffList });
-  latestStateRef.current = { formData, empresa, staffList };
-  const hasUserEditedFormRef = useRef(false);
+  // Control de hidratación multi-capa para evitar que los defaults sobrescriban respaldos en IndexedDB o Servidor
+  const isHydratedRef = useRef(false);
+  const hasUserEditedRef = useRef(false);
+  const cachedIdTokenRef = useRef<string | null>(null);
+  const serverSyncTimerRef = useRef<number | null>(null);
+  const lastStateTimestampRef = useRef<number>(initialLocal.state.updatedAtMs || 0);
 
-  const persistFormDataImmediately = useCallback((nextData: ATSFormData) => {
-    const updatedAtMs = Date.now();
-    try {
-      localStorage.setItem("ats_form_data", JSON.stringify(nextData));
-      localStorage.setItem("ats_form_data_updated_at", String(updatedAtMs));
+  const latestStateRef = useRef({
+    formData,
+    empresa,
+    staffList,
+    preferences,
+    currentHistoryId,
+  });
+  latestStateRef.current = {
+    formData,
+    empresa,
+    staffList,
+    preferences,
+    currentHistoryId,
+  };
+
+  const buildWorkspaceSnapshot = useCallback(
+    (overrides?: Partial<PersistedUserState>): PersistedUserState => {
+      const cur = latestStateRef.current;
+      const ts = overrides?.updatedAtMs ?? Date.now();
+      return {
+        schemaVersion: STORAGE_SCHEMA_VERSION,
+        updatedAtMs: ts,
+        formData: overrides?.formData ?? cur.formData,
+        empresa: overrides?.empresa ?? cur.empresa,
+        staffList: overrides?.staffList ?? cur.staffList,
+        preferences: overrides?.preferences ?? cur.preferences,
+        currentHistoryId:
+          overrides?.currentHistoryId !== undefined
+            ? overrides.currentHistoryId
+            : cur.currentHistoryId,
+      };
+    },
+    []
+  );
+
+  const scheduleServerStateSync = useCallback(
+    (snapshot: PersistedUserState) => {
+      if (!currentUser) return;
+      if (serverSyncTimerRef.current !== null) {
+        window.clearTimeout(serverSyncTimerRef.current);
+      }
+      serverSyncTimerRef.current = window.setTimeout(async () => {
+        try {
+          const token = await currentUser.getIdToken();
+          cachedIdTokenRef.current = token;
+          await saveUserStateToServer(snapshot, token);
+        } catch (err) {
+          console.warn("Aviso sincronizando estado de usuario con servidor:", err);
+        }
+      }, 1200);
+    },
+    [currentUser]
+  );
+
+  const persistWorkspaceImmediately = useCallback(
+    (snapshot: PersistedUserState, options?: { syncServerNow?: boolean }) => {
+      const updatedAtMs = snapshot.updatedAtMs || Date.now();
+      const stamped: PersistedUserState = { ...snapshot, updatedAtMs };
+      lastStateTimestampRef.current = updatedAtMs;
+
+      const savedLocally = saveWorkspaceToLocalStorage(stamped, currentUser?.uid);
+      saveWorkspaceToIDB(stamped, currentUser?.uid).catch((err) =>
+        console.warn("IDB workspace backup warn:", err)
+      );
+
       const nowFormatted = new Date(updatedAtMs).toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",
       });
-      localStorage.setItem("ats_last_saved_time", nowFormatted);
+      try {
+        localStorage.setItem("ats_last_saved_time", nowFormatted);
+      } catch {}
       setLastSavedTime(nowFormatted);
-      setSaveStatus("saved");
-    } catch (err) {
-      console.error("Error guardando ats_form_data en localStorage:", err);
-      setSaveStatus("error");
-    }
+      setSaveStatus(savedLocally ? "saved" : "saved");
 
-    saveAppSettingsToIDB("ats_draft_backup", {
-      formData: nextData,
-      empresa: latestStateRef.current.empresa,
-      staffList: latestStateRef.current.staffList,
-      updatedAt: new Date(updatedAtMs).toISOString(),
-      updatedAtMs,
-    }).catch((err) => console.warn("IDB draft backup warn:", err));
-  }, []);
+      if (options?.syncServerNow && currentUser) {
+        currentUser
+          .getIdToken()
+          .then((token) => {
+            cachedIdTokenRef.current = token;
+            return saveUserStateToServer(stamped, token);
+          })
+          .catch(() => {});
+      } else {
+        scheduleServerStateSync(stamped);
+      }
+    },
+    [currentUser, scheduleServerStateSync]
+  );
 
-  const handleFormDataChange: React.Dispatch<React.SetStateAction<ATSFormData>> = useCallback(
-    (updater) => {
-      hasUserEditedFormRef.current = true;
-      setFormData((prev) => {
-        const next = typeof updater === "function" ? updater(prev) : updater;
-        latestStateRef.current.formData = next;
-        persistFormDataImmediately(next);
+  const updatePreferences = useCallback(
+    (updater: React.SetStateAction<UserPreferences>, options?: { syncServerNow?: boolean }) => {
+      hasUserEditedRef.current = true;
+      setPreferences((prev) => {
+        const nextRaw = typeof updater === "function" ? updater(prev) : updater;
+        const next: UserPreferences = {
+          ...nextRaw,
+          updatedAtMs: Date.now(),
+        };
+        latestStateRef.current.preferences = next;
+        if (isHydratedRef.current) {
+          persistWorkspaceImmediately(
+            buildWorkspaceSnapshot({ preferences: next, updatedAtMs: next.updatedAtMs }),
+            options
+          );
+        }
         return next;
       });
     },
-    [persistFormDataImmediately]
+    [buildWorkspaceSnapshot, persistWorkspaceImmediately]
   );
 
-  // Hidratación de respaldo desde IndexedDB al iniciar (por si localStorage se vació o quedó desactualizado)
+  const setViewMode = useCallback(
+    (nextMode: "form" | "preview") => {
+      updatePreferences((prev) =>
+        prev.viewMode === nextMode ? prev : { ...prev, viewMode: nextMode }
+      );
+    },
+    [updatePreferences]
+  );
+
+  const setActiveSection = useCallback(
+    (nextSection: ATSSectionKey) => {
+      updatePreferences((prev) =>
+        prev.activeSection === nextSection ? prev : { ...prev, activeSection: nextSection }
+      );
+    },
+    [updatePreferences]
+  );
+
+  const setPreviewZoomMode = useCallback(
+    (updater: React.SetStateAction<"fit" | "actual">) => {
+      updatePreferences((prev) => {
+        const nextZoom =
+          typeof updater === "function" ? updater(prev.previewZoomMode) : updater;
+        return prev.previewZoomMode === nextZoom ? prev : { ...prev, previewZoomMode: nextZoom };
+      });
+    },
+    [updatePreferences]
+  );
+
+  const handleFormDataChange: React.Dispatch<React.SetStateAction<ATSFormData>> = useCallback(
+    (updater) => {
+      hasUserEditedRef.current = true;
+      setFormData((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        latestStateRef.current.formData = next;
+        if (latestStateRef.current.preferences.autoSaveEnabled) {
+          persistWorkspaceImmediately(
+            buildWorkspaceSnapshot({ formData: next, updatedAtMs: Date.now() })
+          );
+        }
+        return next;
+      });
+    },
+    [buildWorkspaceSnapshot, persistWorkspaceImmediately]
+  );
+
+  // Hidratación completa en 3 capas al iniciar o cambiar de usuario:
+  // LocalStorage + IndexedDB + Base de datos del servidor (sin perder datos al actualizar el proyecto)
   useEffect(() => {
     let isMounted = true;
-    const restoreFromIDBIfNewer = async () => {
+    isHydratedRef.current = false;
+
+    const hydrateAllPersistenceLayers = async () => {
       try {
-        const idbBackup = await getAppSettingsFromIDB<{
-          formData?: ATSFormData;
-          empresa?: EmpresaConfig;
-          staffList?: PersonalMember[];
-          updatedAt?: string;
-          updatedAtMs?: number;
-        }>("ats_draft_backup");
+        const idToken = currentUser
+          ? await currentUser.getIdToken().catch(() => null)
+          : null;
+        cachedIdTokenRef.current = idToken;
 
-        if (!isMounted || !idbBackup?.formData || hasUserEditedFormRef.current) return;
+        const [hydrated, combinedLocalHistory, serverHistory] = await Promise.all([
+          hydrateWorkspaceAcrossLayers(currentUser?.uid || null, idToken),
+          getAllHistoryRecordsCombined(),
+          fetchSyncedHistoryFromServer(idToken),
+        ]);
 
-        const hasLocalDraft = Boolean(localStorage.getItem("ats_form_data"));
-        const localUpdatedMs = Number(localStorage.getItem("ats_form_data_updated_at") || "0");
-        const idbUpdatedMs =
-          idbBackup.updatedAtMs ||
-          (idbBackup.updatedAt ? new Date(idbBackup.updatedAt).getTime() : 0);
+        if (!isMounted) return;
 
-        if (!hasLocalDraft || (idbUpdatedMs > localUpdatedMs && localUpdatedMs > 0)) {
-          const mergedFormData: ATSFormData = {
-            ...INITIAL_FORM_DATA,
-            ...idbBackup.formData,
-            supervisor: {
-              ...INITIAL_FORM_DATA.supervisor,
-              ...(idbBackup.formData.supervisor || {}),
-            },
-            autorizador: {
-              nombre: "",
-              cedula: "",
-              cargo: "",
-              firmaUrl: "",
-              ...(idbBackup.formData.autorizador || {}),
-            },
-            eppsSeleccionados: {
-              ...INITIAL_FORM_DATA.eppsSeleccionados,
-              ...(idbBackup.formData.eppsSeleccionados || {}),
-            },
-          };
-          setFormData(mergedFormData);
-          latestStateRef.current.formData = mergedFormData;
-          try {
-            localStorage.setItem("ats_form_data", JSON.stringify(mergedFormData));
-            localStorage.setItem("ats_form_data_updated_at", String(idbUpdatedMs || Date.now()));
-          } catch {}
+        // 1. Restaurar y fusionar historial completo (LocalStorage + IndexedDB + Servidor)
+        if (serverHistory.length > 0) {
+          const mergedHistory = mergeHistoryRecords(serverHistory, true);
+          setHistoryCount(mergedHistory.length);
+        } else {
+          setHistoryCount(combinedLocalHistory.length);
+        }
+        refreshPendingCount().catch(() => {});
+
+        // 2. Restaurar borrador actual, empresa, personal con firmas y preferencias si no hubo edición manual aún
+        if (hydrated.state && !hasUserEditedRef.current) {
+          const shouldApply =
+            !initialLocal.hasPersistedData ||
+            hydrated.state.updatedAtMs > lastStateTimestampRef.current ||
+            hydrated.source !== "localStorage";
+
+          if (shouldApply) {
+            const restored = hydrated.state;
+            setFormData(restored.formData);
+            setEmpresa(restored.empresa);
+            setStaffList(restored.staffList);
+            setPreferences(restored.preferences);
+            setCurrentHistoryId(restored.currentHistoryId);
+            latestStateRef.current = {
+              formData: restored.formData,
+              empresa: restored.empresa,
+              staffList: restored.staffList,
+              preferences: restored.preferences,
+              currentHistoryId: restored.currentHistoryId,
+            };
+            lastStateTimestampRef.current = restored.updatedAtMs;
+
+            saveWorkspaceToLocalStorage(restored, currentUser?.uid);
+            saveWorkspaceToIDB(restored, currentUser?.uid).catch(() => {});
+
+            if (hydrated.source !== "server" && idToken) {
+              saveUserStateToServer(restored, idToken).catch(() => {});
+            }
+          }
+        } else if (initialLocal.hasPersistedData && idToken) {
+          // Respaldar datos locales existentes hacia el servidor para primera sincronización
+          const currentSnap = buildWorkspaceSnapshot({
+            updatedAtMs: lastStateTimestampRef.current || Date.now(),
+          });
+          saveWorkspaceToIDB(currentSnap, currentUser?.uid).catch(() => {});
+          saveUserStateToServer(currentSnap, idToken).catch(() => {});
         }
       } catch (err) {
-        console.warn("Aviso restaurando borrador desde IndexedDB:", err);
+        console.warn("Aviso durante hidratación multi-capa:", err);
+      } finally {
+        if (isMounted) {
+          isHydratedRef.current = true;
+        }
       }
     };
 
-    restoreFromIDBIfNewer();
+    hydrateAllPersistenceLayers();
     return () => {
       isMounted = false;
-    };
-  }, []);
-
-  // Persistencia inmediata de empresa, personal y respaldo completo en IndexedDB
-  useEffect(() => {
-    try {
-      localStorage.setItem("ats_form_data", JSON.stringify(formData));
-    } catch (err) {
-      console.error("Error guardando ats_form_data:", err);
-    }
-    try {
-      localStorage.setItem("ats_empresa_config", JSON.stringify(empresa));
-      if (empresa.logoUrl) {
-        saveLogoToStorage(empresa.logoUrl);
+      if (serverSyncTimerRef.current !== null) {
+        window.clearTimeout(serverSyncTimerRef.current);
       }
-    } catch (err) {
-      console.warn("Aviso guardando ats_empresa_config:", err);
-    }
-    try {
-      localStorage.setItem("ats_staff_list", JSON.stringify(staffList));
-    } catch (err) {
-      console.warn("Aviso guardando ats_staff_list:", err);
-    }
+    };
+  }, [currentUser?.uid]);
 
-    const updatedAtMs = Date.now();
-    saveAppSettingsToIDB("ats_draft_backup", {
-      formData,
-      empresa,
-      staffList,
-      updatedAt: new Date(updatedAtMs).toISOString(),
-      updatedAtMs,
-    }).catch((err) => console.warn("IDB draft backup warn:", err));
+  // Persistencia reactiva de empresa, personal y borrador solo DESPUÉS de completar la hidratación inicial
+  useEffect(() => {
+    if (!isHydratedRef.current) return;
+    if (!preferences.autoSaveEnabled) return;
 
-    const nowFormatted = new Date(updatedAtMs).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-    try {
-      localStorage.setItem("ats_last_saved_time", nowFormatted);
-      localStorage.setItem("ats_form_data_updated_at", String(updatedAtMs));
-    } catch {}
-    setLastSavedTime(nowFormatted);
-    setSaveStatus("saved");
-  }, [formData, empresa, staffList]);
+    const snapshot = buildWorkspaceSnapshot({ updatedAtMs: Date.now() });
+    persistWorkspaceImmediately(snapshot);
+  }, [
+    formData,
+    empresa,
+    staffList,
+    preferences,
+    currentHistoryId,
+    buildWorkspaceSnapshot,
+    persistWorkspaceImmediately,
+  ]);
 
   // Synchronous flush on unload / pagehide / visibilitychange (escritorio y móviles PWA)
   useEffect(() => {
     const flushStateSynchronously = () => {
-      const { formData: curForm, empresa: curEmpresa, staffList: curStaff } = latestStateRef.current;
-      const nowMs = Date.now();
-      try {
-        localStorage.setItem("ats_form_data", JSON.stringify(curForm));
-        localStorage.setItem("ats_form_data_updated_at", String(nowMs));
-      } catch (e) {
-        console.error(e);
-      }
-      try {
-        localStorage.setItem("ats_empresa_config", JSON.stringify(curEmpresa));
-        if (curEmpresa.logoUrl) {
-          saveLogoToStorage(curEmpresa.logoUrl);
-        }
-      } catch {}
-      try {
-        localStorage.setItem("ats_staff_list", JSON.stringify(curStaff));
-      } catch {}
-      try {
-        localStorage.setItem(
-          "ats_last_saved_time",
-          new Date(nowMs).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-          })
+      if (!isHydratedRef.current && !hasUserEditedRef.current) return;
+      const snapshot = buildWorkspaceSnapshot({ updatedAtMs: Date.now() });
+      saveWorkspaceToLocalStorage(snapshot, currentUser?.uid);
+      saveWorkspaceToIDB(snapshot, currentUser?.uid).catch(() => {});
+      if (cachedIdTokenRef.current) {
+        saveUserStateToServer(snapshot, cachedIdTokenRef.current, { keepalive: true }).catch(
+          () => {}
         );
-      } catch {}
+      }
     };
 
     const handleVisibilityChange = () => {
@@ -408,7 +444,7 @@ function ATSAppContent() {
       window.removeEventListener("pagehide", flushStateSynchronously);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [buildWorkspaceSnapshot, currentUser?.uid]);
 
   // Calcular escala responsiva automática para la vista previa PDF en pantallas de iPhone/móvil
   useEffect(() => {
@@ -509,21 +545,6 @@ function ATSAppContent() {
 
   const handleManualSave = () => {
     try {
-      localStorage.setItem("ats_form_data", JSON.stringify(formData));
-      localStorage.setItem("ats_empresa_config", JSON.stringify(empresa));
-      localStorage.setItem("ats_staff_list", JSON.stringify(staffList));
-      if (empresa.logoUrl) {
-        saveLogoToStorage(empresa.logoUrl);
-      }
-      const now = new Date().toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      });
-      localStorage.setItem("ats_last_saved_time", now);
-      setLastSavedTime(now);
-      setSaveStatus("saved");
-
       // Guardar también en el Historial de ATS bajo ID único
       const syncStatus = isOnline ? "synced" : "pending";
       const { record } = saveHistoryRecord(
@@ -534,9 +555,18 @@ function ATSAppContent() {
         syncStatus
       );
       setCurrentHistoryId(record.id);
-      localStorage.setItem("ats_current_history_id", record.id);
+      latestStateRef.current.currentHistoryId = record.id;
       setHistoryCount(getHistoryRecords().length);
       refreshPendingCount();
+
+      // Persistir inmediatamente el workspace completo (LocalStorage + IndexedDB + Servidor)
+      persistWorkspaceImmediately(
+        buildWorkspaceSnapshot({
+          currentHistoryId: record.id,
+          updatedAtMs: Date.now(),
+        }),
+        { syncServerNow: true }
+      );
 
       if (isOnline) {
         syncNow().catch((e) => console.warn("Background sync error:", e));
@@ -544,7 +574,7 @@ function ATSAppContent() {
 
       showToast(
         isOnline
-          ? `¡ATS guardado y sincronizado! (${record.formData?.codigo || record.id})`
+          ? `¡ATS guardado y sincronizado en las 3 capas! (${record.formData?.codigo || record.id})`
           : `¡ATS guardado localmente en IndexedDB! Se sincronizará al volver la conexión.`
       );
     } catch {
@@ -792,23 +822,17 @@ function ATSAppContent() {
 
   const updateStaffListImmediately = useCallback(
     (updater: React.SetStateAction<PersonalMember[]>) => {
+      hasUserEditedRef.current = true;
       setStaffList((prev) => {
         const next = typeof updater === "function" ? updater(prev) : updater;
         latestStateRef.current.staffList = next;
-        try {
-          localStorage.setItem("ats_staff_list", JSON.stringify(next));
-        } catch {}
-        saveAppSettingsToIDB("ats_draft_backup", {
-          formData: latestStateRef.current.formData,
-          empresa: latestStateRef.current.empresa,
-          staffList: next,
-          updatedAt: new Date().toISOString(),
-          updatedAtMs: Date.now(),
-        }).catch(() => {});
+        persistWorkspaceImmediately(
+          buildWorkspaceSnapshot({ staffList: next, updatedAtMs: Date.now() })
+        );
         return next;
       });
     },
-    []
+    [buildWorkspaceSnapshot, persistWorkspaceImmediately]
   );
 
   const handleSyncWorkerToStaff = useCallback(
@@ -1032,23 +1056,23 @@ function ATSAppContent() {
         syncStatus
       );
       setCurrentHistoryId(record.id);
-      localStorage.setItem("ats_current_history_id", record.id);
+      latestStateRef.current.currentHistoryId = record.id;
       setHistoryCount(getHistoryRecords().length);
       refreshPendingCount();
 
-      // Si estamos en línea, sincronizar automáticamente con el servidor
+      // Persistir inmediatamente el workspace completo en las 3 capas (LocalStorage + IndexedDB + Servidor)
+      persistWorkspaceImmediately(
+        buildWorkspaceSnapshot({
+          currentHistoryId: record.id,
+          updatedAtMs: Date.now(),
+        }),
+        { syncServerNow: true }
+      );
+
+      // Si estamos en línea, sincronizar automáticamente el historial con el servidor
       if (isOnline) {
         syncNow().catch((e) => console.warn("Background sync error:", e));
       }
-
-      const now = new Date().toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      });
-      localStorage.setItem("ats_last_saved_time", now);
-      setLastSavedTime(now);
-      setSaveStatus("saved");
 
       if (showNotification) {
         showToast(
@@ -1100,7 +1124,7 @@ function ATSAppContent() {
     showToast(`¡ATS "${record.titulo}" cargado exitosamente!`);
   };
 
-  // Nuevo ATS Handler: Inicia un formato nuevo preservando Empresa, Logo, Código y Personal
+  // Nuevo ATS Handler: Inicia un formato nuevo preservando Empresa, Logo, Código, Preferencias y Personal
   const handleNewATS = () => {
     const confirmReset = window.confirm(
       "¿Desea iniciar un Nuevo ATS?\n\nSe reiniciarán las tareas, fechas y firmas para un nuevo día de trabajo, pero se mantendrán guardados permanentemente los datos de la Empresa, Logo, Formato (" + (empresa.codigoFormato || "F-SST-045") + ") y Personal registrado.\n\nLos ATS anteriores permanecen guardados en su Historial."
@@ -1111,6 +1135,7 @@ function ATSAppContent() {
     const newId = `ATS-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
 
     setCurrentHistoryId(null);
+    latestStateRef.current.currentHistoryId = null;
     localStorage.removeItem("ats_current_history_id");
     localStorage.removeItem("ats_manual_edited_fields");
 
@@ -1121,8 +1146,11 @@ function ATSAppContent() {
       version: empresa.version || "01",
       vigencia: empresa.vigencia || "02/09/2026",
       fechaDiligenciamiento: todayStr,
+      lugar: preferences.defaultLugar || INITIAL_FORM_DATA.lugar,
       permisoValidoDesdeFecha: todayStr,
+      permisoValidoDesdeHora: preferences.defaultJornadaInicio || INITIAL_FORM_DATA.permisoValidoDesdeHora,
       permisoValidoHastaFecha: todayStr,
+      permisoValidoHastaHora: preferences.defaultJornadaFin || INITIAL_FORM_DATA.permisoValidoHastaHora,
       firmasTrabajadores: {},
       supervisor: {
         ...formData.supervisor,
@@ -1140,8 +1168,142 @@ function ATSAppContent() {
       })(),
     });
 
-    showToast("¡Nuevo ATS iniciado! Se conservó la información de la empresa y formato.");
+    showToast("¡Nuevo ATS iniciado! Se conservó la información de la empresa, preferencias y personal.");
   };
+
+  // Sincronización manual completa en 3 capas (LocalStorage + IndexedDB + Servidor)
+  const handleForceSyncAll = async (): Promise<{ ok: boolean; message: string }> => {
+    try {
+      const snapshot = buildWorkspaceSnapshot({ updatedAtMs: Date.now() });
+      saveWorkspaceToLocalStorage(snapshot, currentUser?.uid);
+      await saveWorkspaceToIDB(snapshot, currentUser?.uid);
+
+      if (!navigator.onLine) {
+        return {
+          ok: true,
+          message:
+            "Datos guardados localmente en LocalStorage e IndexedDB. Se sincronizarán con el servidor cuando vuelva internet.",
+        };
+      }
+
+      let serverSaved = false;
+      const token = currentUser ? await currentUser.getIdToken().catch(() => null) : null;
+      cachedIdTokenRef.current = token;
+      if (token) {
+        serverSaved = await saveUserStateToServer(snapshot, token);
+      }
+
+      await syncNow().catch(() => {});
+      const remoteHistory = await fetchSyncedHistoryFromServer(token);
+      if (remoteHistory.length > 0) {
+        const merged = mergeHistoryRecords(remoteHistory, true);
+        setHistoryCount(merged.length);
+      }
+      await refreshPendingCount();
+
+      const nowFormatted = new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+      setLastSavedTime(nowFormatted);
+
+      return {
+        ok: true,
+        message: serverSaved
+          ? "Sincronización completa exitosa en LocalStorage, IndexedDB y base de datos del servidor."
+          : "Datos respaldados localmente en LocalStorage e IndexedDB.",
+      };
+    } catch {
+      return {
+        ok: false,
+        message: "No se pudo completar la sincronización. Tus datos locales siguen protegidos.",
+      };
+    }
+  };
+
+  const handleExportFullBackup = async () => {
+    const combinedHistory = await getAllHistoryRecordsCombined();
+    const snapshot = buildWorkspaceSnapshot({ updatedAtMs: Date.now() });
+    exportFullWorkspaceBackup(snapshot, combinedHistory);
+    showToast("Respaldo completo (.json) descargado.");
+  };
+
+  const handleImportFullBackup = async (
+    jsonText: string
+  ): Promise<{ ok: boolean; message: string }> => {
+    const parsed = parseFullWorkspaceBackup(jsonText);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        message: parsed.error || "El archivo de respaldo no es válido.",
+      };
+    }
+
+    let restoredParts: string[] = [];
+
+    if (parsed.workspace) {
+      hasUserEditedRef.current = true;
+      const mergedStaff = mergeStaffLists(parsed.workspace.staffList, staffList);
+      const restoredSnapshot: PersistedUserState = {
+        ...parsed.workspace,
+        staffList: mergedStaff,
+        updatedAtMs: Date.now(),
+      };
+
+      setFormData(restoredSnapshot.formData);
+      setEmpresa(restoredSnapshot.empresa);
+      setStaffList(restoredSnapshot.staffList);
+      setPreferences(restoredSnapshot.preferences);
+      setCurrentHistoryId(restoredSnapshot.currentHistoryId);
+      latestStateRef.current = {
+        formData: restoredSnapshot.formData,
+        empresa: restoredSnapshot.empresa,
+        staffList: restoredSnapshot.staffList,
+        preferences: restoredSnapshot.preferences,
+        currentHistoryId: restoredSnapshot.currentHistoryId,
+      };
+      persistWorkspaceImmediately(restoredSnapshot, { syncServerNow: true });
+      restoredParts.push("borrador, personal, empresa y preferencias");
+    }
+
+    if (parsed.historyRecords && parsed.historyRecords.length > 0) {
+      const mergedHistory = mergeHistoryRecords(parsed.historyRecords, true);
+      setHistoryCount(mergedHistory.length);
+      refreshPendingCount().catch(() => {});
+      if (isOnline) {
+        syncNow().catch(() => {});
+      }
+      restoredParts.push(`${parsed.historyRecords.length} registro(s) de historial`);
+    }
+
+    showToast("¡Respaldo restaurado y guardado de forma persistente!");
+    return {
+      ok: true,
+      message: `Se restauró correctamente: ${restoredParts.join(" + ")}.`,
+    };
+  };
+
+  const handleDeleteHistoryRecord = useCallback(
+    (recordId: string) => {
+      setHistoryCount(getHistoryRecords().length);
+      refreshPendingCount().catch(() => {});
+      if (currentHistoryId === recordId) {
+        setCurrentHistoryId(null);
+        latestStateRef.current.currentHistoryId = null;
+        try {
+          localStorage.removeItem("ats_current_history_id");
+        } catch {}
+      }
+      if (currentUser) {
+        currentUser
+          .getIdToken()
+          .then((token) => deleteSyncedHistoryRecordOnServer(recordId, token))
+          .catch(() => {});
+      }
+    },
+    [currentHistoryId, currentUser, refreshPendingCount]
+  );
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col antialiased overflow-x-clip print:overflow-visible">
@@ -1375,7 +1537,15 @@ function ATSAppContent() {
                       className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer text-left"
                     >
                       <Building className="w-4 h-4 text-slate-500" />
-                      <span>Empresa & Logo DCM</span>
+                      <span>Empresa & Logo</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsPreferencesModalOpen(true)}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer text-left"
+                    >
+                      <SlidersHorizontal className="w-4 h-4 text-slate-500" />
+                      <span>Preferencias y Respaldo</span>
                     </button>
                     <button
                       type="button"
@@ -1440,6 +1610,8 @@ function ATSAppContent() {
               }}
               onSyncWorkerToStaff={handleSyncWorkerToStaff}
               onSaveAutorizadorToStaff={handleSaveAutorizadorToStaff}
+              activeSection={activeSection}
+              onChangeActiveSection={setActiveSection}
             />
 
 
@@ -1727,6 +1899,12 @@ function ATSAppContent() {
         formData={formData}
         empresa={empresa}
         onShowToast={showToast}
+        defaultRecipient={preferences.lastEmailRecipient}
+        onSaveRecipientPreference={(email) =>
+          updatePreferences((prev) => ({ ...prev, lastEmailRecipient: email }), {
+            syncServerNow: true,
+          })
+        }
       />
 
       {/* ATS HISTORY MODAL */}
@@ -1743,6 +1921,28 @@ function ATSAppContent() {
         }}
         currentATSId={currentHistoryId || undefined}
         onSaveCurrentATS={() => handleSaveCurrentATS(true)}
+        onDeleteRecord={handleDeleteHistoryRecord}
+      />
+
+      {/* PREFERENCES & FULL BACKUP MODAL */}
+      <PreferencesBackupModal
+        isOpen={isPreferencesModalOpen}
+        onClose={() => setIsPreferencesModalOpen(false)}
+        preferences={preferences}
+        onSavePreferences={(updated) => {
+          updatePreferences(updated, { syncServerNow: true });
+          showToast("¡Preferencias guardadas de forma persistente!");
+        }}
+        onForceSyncAll={handleForceSyncAll}
+        onExportBackup={handleExportFullBackup}
+        onImportBackup={handleImportFullBackup}
+        stats={{
+          staffCount: staffList.length,
+          historyCount,
+          lastSavedTime,
+          isOnline,
+          userEmail: currentUser?.email,
+        }}
       />
 
       {/* PWA CROSS-BROWSER INSTALL PROMPT & GUIDE MODAL */}

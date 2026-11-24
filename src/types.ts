@@ -99,3 +99,27 @@ export interface ATSHistoryRecord {
   syncStatus?: "pending" | "synced";
   syncedAt?: string;
 }
+
+export type ATSSectionKey = "cabecera" | "matriz" | "epp" | "area" | "firmas";
+
+export interface UserPreferences {
+  viewMode: "form" | "preview";
+  activeSection: ATSSectionKey;
+  previewZoomMode: "fit" | "actual";
+  lastEmailRecipient: string;
+  autoSaveEnabled: boolean;
+  defaultLugar: string;
+  defaultJornadaInicio: string;
+  defaultJornadaFin: string;
+  updatedAtMs?: number;
+}
+
+export interface PersistedUserState {
+  schemaVersion: number;
+  updatedAtMs: number;
+  formData: ATSFormData;
+  empresa: EmpresaConfig;
+  staffList: PersonalMember[];
+  preferences: UserPreferences;
+  currentHistoryId: string | null;
+}

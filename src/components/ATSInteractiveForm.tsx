@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import {
   ATSFormData,
   ATSPaso,
+  ATSSectionKey,
   EmpresaConfig,
   PersonalMember,
   CustomEPPItem,
@@ -73,6 +74,8 @@ interface ATSInteractiveFormProps {
     cargo: string;
     firmaUrl: string;
   }) => void;
+  activeSection?: ATSSectionKey;
+  onChangeActiveSection?: (section: ATSSectionKey) => void;
 }
 
 export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
@@ -95,8 +98,15 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
   onUpdateEmpresa,
   onSyncWorkerToStaff,
   onSaveAutorizadorToStaff,
+  activeSection: controlledActiveSection,
+  onChangeActiveSection,
 }) => {
-  const [activeSection, setActiveSection] = useState<"cabecera" | "matriz" | "epp" | "area" | "firmas">("cabecera");
+  const [internalActiveSection, setInternalActiveSection] = useState<ATSSectionKey>("cabecera");
+  const activeSection = controlledActiveSection ?? internalActiveSection;
+  const setActiveSection = (nextSection: ATSSectionKey) => {
+    setInternalActiveSection(nextSection);
+    onChangeActiveSection?.(nextSection);
+  };
   const [isOptimizingLogo, setIsOptimizingLogo] = useState(false);
   const [logoSaveNotice, setLogoSaveNotice] = useState<string | null>(null);
   const [newCustomEppName, setNewCustomEppName] = useState("");

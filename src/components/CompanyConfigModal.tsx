@@ -46,10 +46,6 @@ export const CompanyConfigModal: React.FC<CompanyConfigModalProps> = ({
     }
   };
 
-  const handleResetLogoOnly = () => {
-    setPreviewLogo(DEFAULT_LOGO_SVG);
-    setForm((prev) => ({ ...prev, logoUrl: DEFAULT_LOGO_SVG }));
-  };
 
   const handleClearLogo = () => {
     // Si se limpia el logo, se restablece de inmediato al logotipo oficial DCM fijo en la plantilla
@@ -107,16 +103,6 @@ export const CompanyConfigModal: React.FC<CompanyConfigModalProps> = ({
                 Logotipo Oficial DCM Fijo en Plantilla
               </label>
               <div className="flex items-center gap-1.5 text-[11px]">
-                <button
-                  type="button"
-                  onClick={handleResetLogoOnly}
-                  className="text-indigo-600 hover:text-indigo-800 font-medium hover:underline flex items-center gap-1"
-                  title="Restaurar el logotipo vectorial oficial de DCM"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  Logo Oficial DCM
-                </button>
-                <span className="text-slate-300">·</span>
                 <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
                   <Lock className="w-2.5 h-2.5" />
                   Fijo en Plantilla

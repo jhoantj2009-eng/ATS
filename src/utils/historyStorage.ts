@@ -1,5 +1,9 @@
 import { ATSFormData, ATSHistoryRecord, EmpresaConfig, PersonalMember } from "../types";
-import { saveATSRecordToIDB, deleteATSRecordFromIDB } from "./indexedDB";
+import {
+  saveATSRecordToIDB,
+  deleteATSRecordFromIDB,
+  getAllATSRecordsFromIDB,
+} from "./indexedDB";
 
 const HISTORY_STORAGE_KEY = "ats_history_records";
 const MAX_HISTORY_RECORDS = 150;
@@ -95,13 +99,83 @@ export function saveHistoryRecord(
 }
 
 /**
+ * Fusiona registros provenientes de IndexedDB o del servidor en localStorage e IndexedDB
+ * manteniendo siempre la versión más reciente por ID sin duplicados.
+ */
+export function mergeHistoryRecords(
+  incomingRecords: ATSHistoryRecord[],
+  persistToIDB = true
+): ATSHistoryRecord[] {
+  try {
+    const localRecords = getHistoryRecords();
+    const map = new Map<string, ATSHistoryRecord>();
+
+    for (const rec of localRecords) {
+      if (rec?.id) map.set(rec.id, rec);
+    }
+
+    for (const inc of incomingRecords) {
+      if (!inc?.id || !inc.formData) continue;
+      const existing = map.get(inc.id);
+      if (!existing) {
+        map.set(inc.id, inc);
+      } else {
+        const incTime = new Date(inc.updatedAt || inc.createdAt || 0).getTime();
+        const extTime = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+        if (incTime > extTime) {
+          map.set(inc.id, inc);
+        }
+      }
+    }
+
+    const merged = Array.from(map.values())
+      .sort((a, b) => {
+        const dateA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+        const dateB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+        return dateB - dateA;
+      })
+      .slice(0, MAX_HISTORY_RECORDS);
+
+    try {
+      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(merged));
+    } catch (quotaErr) {
+      console.warn("Aviso de cuota en localStorage al fusionar historial (IndexedDB conserva copia):", quotaErr);
+    }
+
+    if (persistToIDB) {
+      for (const rec of merged) {
+        saveATSRecordToIDB(rec, rec.syncStatus !== "synced").catch(() => {});
+      }
+    }
+
+    return merged;
+  } catch (err) {
+    console.error("Error merging history records:", err);
+    return getHistoryRecords();
+  }
+}
+
+/**
+ * Obtiene todos los registros combinando localStorage e IndexedDB
+ */
+export async function getAllHistoryRecordsCombined(): Promise<ATSHistoryRecord[]> {
+  const idbRecords = await getAllATSRecordsFromIDB();
+  if (idbRecords.length === 0) {
+    return getHistoryRecords();
+  }
+  return mergeHistoryRecords(idbRecords, false);
+}
+
+/**
  * Elimina un registro del historial por su ID tanto en localStorage como en IndexedDB.
  */
 export function deleteHistoryRecord(recordId: string): ATSHistoryRecord[] {
   try {
     const records = getHistoryRecords();
     const updated = records.filter((r) => r.id !== recordId);
-    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(updated));
+    try {
+      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(updated));
+    } catch {}
 
     // Eliminar también de IndexedDB
     deleteATSRecordFromIDB(recordId).catch((err) => {

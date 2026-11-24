@@ -4,9 +4,12 @@ import {
   signOut as firebaseSignOut,
   onAuthStateChanged,
   sendPasswordResetEmail,
+  setPersistence,
+  browserLocalPersistence,
   User,
 } from "firebase/auth";
 import { auth } from "../firebase";
+import { getSavedLoginEmail, saveLoginEmail } from "../utils/persistentStorage";
 import {
   Lock,
   Mail,
@@ -42,8 +45,8 @@ export const AccessGuard: React.FC<AccessGuardProps> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
-  // Form states
-  const [email, setEmail] = useState("");
+  // Form states (recuperando último correo usado)
+  const [email, setEmail] = useState(() => getSavedLoginEmail());
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -57,9 +60,14 @@ export const AccessGuard: React.FC<AccessGuardProps> = ({ children }) => {
   const [resetErrorMessage, setResetErrorMessage] = useState<string | null>(null);
   const [isPWAModalOpen, setIsPWAModalOpen] = useState(false);
 
-  // Escuchar cambios de estado en Firebase Authentication
+  // Configurar persistencia local de sesión y escuchar cambios en Firebase Authentication
   useEffect(() => {
+    setPersistence(auth, browserLocalPersistence).catch(() => {});
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user?.email) {
+        saveLoginEmail(user.email);
+      }
       setCurrentUser(user);
       setIsLoadingAuth(false);
     });
@@ -103,7 +111,9 @@ export const AccessGuard: React.FC<AccessGuardProps> = ({ children }) => {
 
     setIsSubmitting(true);
     try {
+      await setPersistence(auth, browserLocalPersistence).catch(() => {});
       await signInWithEmailAndPassword(auth, cleanEmail, password);
+      saveLoginEmail(cleanEmail);
       setErrorMessage(null);
     } catch (err: any) {
       console.error("Error de inicio de sesión con Firebase:", err);
