@@ -100,7 +100,7 @@ export const CompanyConfigModal: React.FC<CompanyConfigModalProps> = ({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="block text-xs font-bold text-slate-800">
-                Logotipo Oficial DCM Fijo en Plantilla
+                Logotipo Oficial
               </label>
               <div className="flex items-center gap-1.5 text-[11px]">
                 <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
