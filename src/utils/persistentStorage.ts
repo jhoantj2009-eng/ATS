@@ -228,6 +228,95 @@ export function mergeStaffLists(
 }
 
 /**
+ * Sincroniza bidireccionalmente todas las firmas (trabajadores, supervisor SST y autorizador)
+ * entre el formulario activo y el directorio permanente de personal para que nunca se pierdan.
+ */
+export function reconcileAllSignatures(
+  formData: ATSFormData,
+  staffList: PersonalMember[]
+): { formData: ATSFormData; staffList: PersonalMember[] } {
+  const staffById = new Map<string, PersonalMember>();
+  const staffByCedula = new Map<string, PersonalMember>();
+  const staffByNombre = new Map<string, PersonalMember>();
+
+  const nextStaff: PersonalMember[] = staffList.map((m) => ({ ...m }));
+  for (const m of nextStaff) {
+    if (m.id) staffById.set(m.id, m);
+    const ced = (m.cedula || "").trim();
+    if (ced) staffByCedula.set(ced, m);
+    const nom = (m.nombre || "").trim().toUpperCase();
+    if (nom) staffByNombre.set(nom, m);
+  }
+
+  const findStaffMatch = (id?: string, cedula?: string, nombre?: string): PersonalMember | undefined => {
+    if (id && staffById.has(id)) return staffById.get(id);
+    const ced = (cedula || "").trim();
+    if (ced && staffByCedula.has(ced)) return staffByCedula.get(ced);
+    const nom = (nombre || "").trim().toUpperCase();
+    if (nom && staffByNombre.has(nom)) return staffByNombre.get(nom);
+    return undefined;
+  };
+
+  const nextFirmas: Record<string, string> = { ...(formData.firmasTrabajadores || {}) };
+
+  const nextTrabajadores = (formData.trabajadores || []).map((w) => {
+    const match = findStaffMatch(w.id, w.cedula, w.nombre);
+    const resolvedSig =
+      (isSafeImageUrl(nextFirmas[w.id]) && nextFirmas[w.id]) ||
+      (isSafeImageUrl(w.firmaUrl) && w.firmaUrl) ||
+      (isSafeImageUrl(match?.firmaUrl) && match?.firmaUrl) ||
+      "";
+
+    if (resolvedSig) {
+      nextFirmas[w.id] = resolvedSig;
+      if (match && !match.firmaUrl) {
+        match.firmaUrl = resolvedSig;
+      }
+    }
+    return resolvedSig ? { ...w, firmaUrl: resolvedSig } : { ...w };
+  });
+
+  // También sincronizar firmas del Supervisor SST con el directorio
+  const supMatch = findStaffMatch(undefined, formData.supervisor?.cedula, formData.supervisor?.nombre);
+  const resolvedSupSig =
+    (isSafeImageUrl(formData.supervisor?.firmaUrl) && formData.supervisor?.firmaUrl) ||
+    (isSafeImageUrl(supMatch?.firmaUrl) && supMatch?.firmaUrl) ||
+    "";
+  if (resolvedSupSig && supMatch && !supMatch.firmaUrl) {
+    supMatch.firmaUrl = resolvedSupSig;
+  }
+
+  // También sincronizar firmas de Quien Autoriza con el directorio
+  const authMatch = findStaffMatch(undefined, formData.autorizador?.cedula, formData.autorizador?.nombre);
+  const resolvedAuthSig =
+    (isSafeImageUrl(formData.autorizador?.firmaUrl) && formData.autorizador?.firmaUrl) ||
+    (isSafeImageUrl(authMatch?.firmaUrl) && authMatch?.firmaUrl) ||
+    "";
+  if (resolvedAuthSig && authMatch && !authMatch.firmaUrl) {
+    authMatch.firmaUrl = resolvedAuthSig;
+  }
+
+  return {
+    formData: {
+      ...formData,
+      trabajadores: nextTrabajadores,
+      firmasTrabajadores: nextFirmas,
+      supervisor: {
+        ...formData.supervisor,
+        firmaUrl: resolvedSupSig,
+      },
+      autorizador: {
+        nombre: formData.autorizador?.nombre || "",
+        cedula: formData.autorizador?.cedula || "",
+        cargo: formData.autorizador?.cargo || "",
+        firmaUrl: resolvedAuthSig,
+      },
+    },
+    staffList: nextStaff,
+  };
+}
+
+/**
  * Normaliza las preferencias del usuario
  */
 export function normalizePreferences(raw: unknown): UserPreferences {
@@ -390,13 +479,13 @@ export function saveWorkspaceToLocalStorage(
     saveLogoToStorage(payload.empresa.logoUrl);
   }
 
-  // Clave unificada por usuario (si excede cuota por imágenes grandes, guarda versión ligera sin duplicar firmas; IndexedDB + Servidor conservan el 100%)
+  // Clave unificada por usuario (NUNCA eliminar firmas; si excede cuota, omitir solo el logo repetido que ya vive en ats_saved_logo + IndexedDB)
   if (!trySet(userKey, JSON.stringify(payload))) {
     const compactPayload: PersistedUserState = {
       ...payload,
-      formData: {
-        ...payload.formData,
-        firmasTrabajadores: {},
+      empresa: {
+        ...payload.empresa,
+        logoUrl: "",
       },
     };
     if (!trySet(userKey, JSON.stringify(compactPayload))) {
@@ -639,15 +728,61 @@ export async function hydrateWorkspaceAcrossLayers(
   candidates.sort((a, b) => b.ts - a.ts);
   const winner = candidates[0];
 
-  // Fusionar directorio de personal desde todas las capas para no perder trabajadores ni firmas
+  // Fusionar directorio de personal y todas las firmas desde todas las capas para nunca perder ninguna firma
   let mergedStaff = winner.state.staffList;
+  const mergedFirmasTrabajadores: Record<string, string> = {
+    ...(winner.state.formData.firmasTrabajadores || {}),
+  };
+  let mergedSupFirma = winner.state.formData.supervisor?.firmaUrl || "";
+  let mergedAuthFirma = winner.state.formData.autorizador?.firmaUrl || "";
+
   for (let i = 1; i < candidates.length; i++) {
-    mergedStaff = mergeStaffLists(mergedStaff, candidates[i].state.staffList);
+    const other = candidates[i].state;
+    mergedStaff = mergeStaffLists(mergedStaff, other.staffList);
+
+    for (const [workerId, sig] of Object.entries(other.formData.firmasTrabajadores || {})) {
+      if (!mergedFirmasTrabajadores[workerId] && isSafeImageUrl(sig) && sig) {
+        mergedFirmasTrabajadores[workerId] = sig;
+      }
+    }
+    if (
+      !mergedSupFirma &&
+      other.formData.supervisor?.firmaUrl &&
+      other.formData.supervisor?.cedula?.trim() === winner.state.formData.supervisor?.cedula?.trim()
+    ) {
+      mergedSupFirma = other.formData.supervisor.firmaUrl;
+    }
+    if (
+      !mergedAuthFirma &&
+      other.formData.autorizador?.firmaUrl &&
+      other.formData.autorizador?.cedula?.trim() === winner.state.formData.autorizador?.cedula?.trim()
+    ) {
+      mergedAuthFirma = other.formData.autorizador.firmaUrl;
+    }
   }
+
+  const reconciled = reconcileAllSignatures(
+    {
+      ...winner.state.formData,
+      firmasTrabajadores: mergedFirmasTrabajadores,
+      supervisor: {
+        ...winner.state.formData.supervisor,
+        firmaUrl: mergedSupFirma,
+      },
+      autorizador: {
+        nombre: winner.state.formData.autorizador?.nombre || "",
+        cedula: winner.state.formData.autorizador?.cedula || "",
+        cargo: winner.state.formData.autorizador?.cargo || "",
+        firmaUrl: mergedAuthFirma,
+      },
+    },
+    mergedStaff
+  );
 
   const finalState: PersistedUserState = {
     ...winner.state,
-    staffList: mergedStaff,
+    formData: reconciled.formData,
+    staffList: reconciled.staffList,
   };
 
   return {

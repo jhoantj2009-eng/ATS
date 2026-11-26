@@ -132,7 +132,26 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
   const handleSave = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const dataUrl = canvas.toDataURL("image/png");
+    // Optimizar resolución (máx. 640px ancho) para mantener trazo nítido en PDF con peso mínimo (~5-12 KB)
+    let dataUrl: string;
+    const maxW = 640;
+    if (canvas.width > maxW) {
+      const ratio = maxW / canvas.width;
+      const outCanvas = document.createElement("canvas");
+      outCanvas.width = maxW;
+      outCanvas.height = Math.max(120, Math.round(canvas.height * ratio));
+      const outCtx = outCanvas.getContext("2d");
+      if (outCtx) {
+        outCtx.imageSmoothingEnabled = true;
+        outCtx.imageSmoothingQuality = "high";
+        outCtx.drawImage(canvas, 0, 0, outCanvas.width, outCanvas.height);
+        dataUrl = outCanvas.toDataURL("image/png");
+      } else {
+        dataUrl = canvas.toDataURL("image/png");
+      }
+    } else {
+      dataUrl = canvas.toDataURL("image/png");
+    }
     onSave(dataUrl);
     onClose();
   };

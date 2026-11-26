@@ -50,6 +50,7 @@ import {
   exportFullWorkspaceBackup,
   parseFullWorkspaceBackup,
   mergeStaffLists,
+  reconcileAllSignatures,
 } from "./utils/persistentStorage";
 import { exportToPDF, printDirect } from "./utils/pdfExport";
 import { useNetworkSync } from "./hooks/useNetworkSync";
@@ -77,10 +78,19 @@ function ATSAppContent() {
   // Auth & User from Firebase (disponible primero para segmentar y sincronizar persistencia por usuario)
   const { currentUser, signOutUser } = useAuth();
 
-  // Carga inicial síncrona unificada desde LocalStorage (con migración automática de esquema)
+  // Carga inicial síncrona unificada desde LocalStorage (con migración automática y reconciliación de firmas)
   const initialLocalRef = useRef<ReturnType<typeof loadLocalWorkspaceSync> | null>(null);
   if (!initialLocalRef.current) {
-    initialLocalRef.current = loadLocalWorkspaceSync(currentUser?.uid);
+    const loaded = loadLocalWorkspaceSync(currentUser?.uid);
+    const synced = reconcileAllSignatures(loaded.state.formData, loaded.state.staffList);
+    initialLocalRef.current = {
+      ...loaded,
+      state: {
+        ...loaded.state,
+        formData: synced.formData,
+        staffList: synced.staffList,
+      },
+    };
   }
   const initialLocal = initialLocalRef.current;
 
@@ -916,84 +926,160 @@ function ATSAppContent() {
     [updateStaffListImmediately, handleFormDataChange]
   );
 
-  // Signature save handler
+  // Signature save handler: guarda permanentemente en formulario, directorio de personal, historial activo y en las 3 capas
   const handleSaveSignature = (dataUrl: string) => {
     if (!signTarget) return;
 
+    const currentForm = latestStateRef.current.formData;
+    const currentStaff = latestStateRef.current.staffList;
+    let nextForm: ATSFormData = currentForm;
+    let nextStaff: PersonalMember[] = currentStaff;
+    let toastMsg = "Firma registrada y guardada permanentemente";
+
     if (signTarget.type === "worker" && signTarget.id) {
       const targetId = signTarget.id;
-      handleFormDataChange((prev) => ({
-        ...prev,
+      nextForm = {
+        ...currentForm,
         firmasTrabajadores: {
-          ...prev.firmasTrabajadores,
+          ...currentForm.firmasTrabajadores,
           [targetId]: dataUrl,
         },
-        trabajadores: prev.trabajadores.map((w) =>
+        trabajadores: currentForm.trabajadores.map((w) =>
           w.id === targetId ? { ...w, firmaUrl: dataUrl } : w
         ),
-      }));
-      // También guardar la firma en el directorio permanente de personal
-      updateStaffListImmediately((prev) => {
-        const exists = prev.some((m) => m.id === targetId);
-        if (exists) {
-          return prev.map((member) =>
-            member.id === targetId ? { ...member, firmaUrl: dataUrl } : member
-          );
-        }
-        const activeMatch = latestStateRef.current.formData.trabajadores.find((w) => w.id === targetId);
-        if (activeMatch) {
-          return [...prev, { ...activeMatch, firmaUrl: dataUrl }];
-        }
-        return prev;
-      });
-      showToast(`Firma registrada y guardada para ${signTarget.name}`);
+      };
+
+      const exists = currentStaff.some((m) => m.id === targetId);
+      if (exists) {
+        nextStaff = currentStaff.map((member) =>
+          member.id === targetId ? { ...member, firmaUrl: dataUrl } : member
+        );
+      } else {
+        const activeMatch = currentForm.trabajadores.find((w) => w.id === targetId);
+        nextStaff = activeMatch
+          ? [...currentStaff, { ...activeMatch, firmaUrl: dataUrl }]
+          : currentStaff;
+      }
+      toastMsg = `Firma registrada y guardada permanentemente para ${signTarget.name}`;
     } else if (signTarget.type === "supervisor") {
-      handleFormDataChange((prev) => ({
-        ...prev,
+      const curSup = currentForm.supervisor;
+      nextForm = {
+        ...currentForm,
         supervisor: {
-          ...prev.supervisor,
+          ...curSup,
           firmaUrl: dataUrl,
         },
-      }));
-      // También guardar la firma en el coordinador SST correspondiente dentro del directorio
-      updateStaffListImmediately((prev) =>
-        prev.map((member) =>
-          member.cedula.trim() === formData.supervisor.cedula.trim() ||
-          member.nombre.trim() === formData.supervisor.nombre.trim()
-            ? { ...member, firmaUrl: dataUrl }
-            : member
-        )
-      );
-      showToast("Firma registrada y guardada para el Supervisor SST");
+      };
+
+      const supCed = (curSup?.cedula || "").trim();
+      const supNom = (curSup?.nombre || "").trim().toUpperCase();
+      if (supCed || supNom) {
+        const matchIdx = currentStaff.findIndex(
+          (member) =>
+            (supCed && member.cedula.trim() === supCed) ||
+            (supNom && member.nombre.trim().toUpperCase() === supNom)
+        );
+        if (matchIdx >= 0) {
+          nextStaff = currentStaff.map((member, idx) =>
+            idx === matchIdx ? { ...member, firmaUrl: dataUrl } : member
+          );
+        } else {
+          nextStaff = [
+            ...currentStaff,
+            {
+              id: "p_sup_" + Date.now(),
+              nombre: supNom || "COORDINADOR SST",
+              cedula: supCed,
+              cargo: curSup?.cargo || "Coordinador / Supervisor SST",
+              arl: "SURA ARL",
+              rol: "coordinador_sst",
+              firmaUrl: dataUrl,
+            },
+          ];
+        }
+      }
+      toastMsg = "Firma registrada y guardada permanentemente para el Supervisor SST";
     } else if (signTarget.type === "autorizador") {
-      const curAuth = latestStateRef.current.formData.autorizador || {
+      const curAuth = currentForm.autorizador || {
         nombre: "",
         cedula: "",
         cargo: "",
         firmaUrl: "",
       };
-      handleFormDataChange((prev) => ({
-        ...prev,
+      nextForm = {
+        ...currentForm,
         autorizador: {
-          nombre: prev.autorizador?.nombre || "",
-          cedula: prev.autorizador?.cedula || "",
-          cargo: prev.autorizador?.cargo || "",
+          nombre: curAuth.nombre || "",
+          cedula: curAuth.cedula || "",
+          cargo: curAuth.cargo || "",
           firmaUrl: dataUrl,
         },
-      }));
-      // Sincronizar también en el directorio si ya existe registrado
-      if (curAuth.cedula.trim() || curAuth.nombre.trim()) {
-        updateStaffListImmediately((prev) =>
-          prev.map((member) =>
-            (curAuth.cedula.trim() !== "" && member.cedula.trim() === curAuth.cedula.trim()) ||
-            (curAuth.nombre.trim() !== "" && member.nombre.trim() === curAuth.nombre.trim())
-              ? { ...member, firmaUrl: dataUrl }
-              : member
-          )
+      };
+
+      const authCed = (curAuth.cedula || "").trim();
+      const authNom = (curAuth.nombre || "").trim().toUpperCase();
+      if (authCed || authNom) {
+        const matchIdx = currentStaff.findIndex(
+          (member) =>
+            (authCed && member.cedula.trim() === authCed) ||
+            (authNom && member.nombre.trim().toUpperCase() === authNom)
         );
+        if (matchIdx >= 0) {
+          nextStaff = currentStaff.map((member, idx) =>
+            idx === matchIdx ? { ...member, firmaUrl: dataUrl } : member
+          );
+        } else {
+          nextStaff = [
+            ...currentStaff,
+            {
+              id: "p_auth_" + Date.now(),
+              nombre: authNom || "AUTORIZADOR",
+              cedula: authCed,
+              cargo: curAuth.cargo || "Jefe de Área / Autorizador",
+              arl: "SURA ARL",
+              rol: "autorizador",
+              firmaUrl: dataUrl,
+            },
+          ];
+        }
       }
-      showToast("Firma registrada y guardada para quien autoriza el trabajo");
+      toastMsg = "Firma registrada y guardada permanentemente para quien autoriza el trabajo";
     }
+
+    const reconciled = reconcileAllSignatures(nextForm, nextStaff);
+    hasUserEditedRef.current = true;
+    latestStateRef.current.formData = reconciled.formData;
+    latestStateRef.current.staffList = reconciled.staffList;
+    setFormData(reconciled.formData);
+    setStaffList(reconciled.staffList);
+
+    const nowMs = Date.now();
+    persistWorkspaceImmediately(
+      buildWorkspaceSnapshot({
+        formData: reconciled.formData,
+        staffList: reconciled.staffList,
+        updatedAtMs: nowMs,
+      }),
+      { syncServerNow: true }
+    );
+
+    // Si el usuario tiene un ATS del historial abierto, actualizar también ese registro con la firma nueva
+    const activeHistoryId = latestStateRef.current.currentHistoryId;
+    if (activeHistoryId) {
+      try {
+        saveHistoryRecord(
+          reconciled.formData,
+          latestStateRef.current.empresa,
+          reconciled.staffList,
+          activeHistoryId,
+          isOnline ? "synced" : "pending"
+        );
+      } catch {
+        // El workspace principal ya quedó respaldado en las 3 capas
+      }
+    }
+
+    showToast(toastMsg);
     setSignTarget(null);
   };
 
@@ -1089,7 +1175,7 @@ function ATSAppContent() {
     }
   };
 
-  // Cargar ATS guardado desde el Historial
+  // Cargar ATS guardado desde el Historial (fusionando directorio y conservando todas las firmas)
   const handleLoadATSFromHistory = (record: ATSHistoryRecord, targetView: "form" | "preview" = "form") => {
     try {
       localStorage.setItem(
@@ -1097,7 +1183,13 @@ function ATSAppContent() {
         JSON.stringify({ id: record.formData.id, altura: true, tipo: true })
       );
     } catch {}
-    handleFormDataChange({
+
+    const mergedStaff =
+      record.staffList && Array.isArray(record.staffList)
+        ? mergeStaffLists(latestStateRef.current.staffList, record.staffList)
+        : latestStateRef.current.staffList;
+
+    const baseFormData: ATSFormData = {
       ...INITIAL_FORM_DATA,
       ...record.formData,
       autorizador: {
@@ -1107,39 +1199,54 @@ function ATSAppContent() {
         firmaUrl: "",
         ...(record.formData.autorizador || {}),
       },
-    });
+    };
+
+    const reconciled = reconcileAllSignatures(baseFormData, mergedStaff);
+
+    updateStaffListImmediately(reconciled.staffList);
+    handleFormDataChange(reconciled.formData);
+
     if (record.empresa) {
-      setEmpresa(record.empresa);
-      if (record.empresa.logoUrl) {
-        saveLogoToStorage(record.empresa.logoUrl);
+      const nextEmpresa = {
+        ...record.empresa,
+        logoUrl: record.empresa.logoUrl || latestStateRef.current.empresa.logoUrl,
+      };
+      setEmpresa(nextEmpresa);
+      if (nextEmpresa.logoUrl) {
+        saveLogoToStorage(nextEmpresa.logoUrl);
       }
     }
-    if (record.staffList && Array.isArray(record.staffList)) {
-      setStaffList(record.staffList);
-    }
     setCurrentHistoryId(record.id);
-    localStorage.setItem("ats_current_history_id", record.id);
+    latestStateRef.current.currentHistoryId = record.id;
+    try {
+      localStorage.setItem("ats_current_history_id", record.id);
+    } catch {}
     setViewMode(targetView);
     setIsHistoryModalOpen(false);
-    showToast(`¡ATS "${record.titulo}" cargado exitosamente!`);
+    showToast(`¡ATS "${record.titulo}" cargado con todas sus firmas!`);
   };
 
-  // Nuevo ATS Handler: Inicia un formato nuevo preservando Empresa, Logo, Código, Preferencias y Personal
+  // Nuevo ATS Handler: Inicia un formato nuevo preservando Empresa, Logo, Código, Preferencias, Personal y todas sus Firmas
   const handleNewATS = () => {
     const confirmReset = window.confirm(
-      "¿Desea iniciar un Nuevo ATS?\n\nSe reiniciarán las tareas, fechas y firmas para un nuevo día de trabajo, pero se mantendrán guardados permanentemente los datos de la Empresa, Logo, Formato (" + (empresa.codigoFormato || "F-SST-045") + ") y Personal registrado.\n\nLos ATS anteriores permanecen guardados en su Historial."
+      "¿Desea iniciar un Nuevo ATS?\n\nSe reiniciarán las tareas y fechas para un nuevo día de trabajo, pero se mantendrán guardados permanentemente los datos de la Empresa, Logo, Formato (" + (empresa.codigoFormato || "F-SST-045") + "), Personal registrado y todas las firmas guardadas.\n\nLos ATS anteriores permanecen guardados en su Historial."
     );
     if (!confirmReset) return;
 
     const todayStr = new Date().toISOString().split("T")[0];
-    const newId = `ATS-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
+    const newId = `ATS-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
 
     setCurrentHistoryId(null);
     latestStateRef.current.currentHistoryId = null;
     localStorage.removeItem("ats_current_history_id");
     localStorage.removeItem("ats_manual_edited_fields");
 
-    handleFormDataChange({
+    const currentCrew = (() => {
+      const crew = staffList.filter((m) => m.rol !== "autorizador");
+      return crew.length > 0 ? crew : [...staffList];
+    })();
+
+    const draftForm: ATSFormData = {
       ...INITIAL_FORM_DATA,
       id: newId,
       codigo: empresa.codigoFormato || "F-SST-045",
@@ -1151,24 +1258,23 @@ function ATSAppContent() {
       permisoValidoDesdeHora: preferences.defaultJornadaInicio || INITIAL_FORM_DATA.permisoValidoDesdeHora,
       permisoValidoHastaFecha: todayStr,
       permisoValidoHastaHora: preferences.defaultJornadaFin || INITIAL_FORM_DATA.permisoValidoHastaHora,
-      firmasTrabajadores: {},
+      firmasTrabajadores: { ...formData.firmasTrabajadores },
       supervisor: {
         ...formData.supervisor,
-        firmaUrl: "",
       },
       autorizador: {
         nombre: formData.autorizador?.nombre || "",
         cedula: formData.autorizador?.cedula || "",
         cargo: formData.autorizador?.cargo || "",
-        firmaUrl: "",
+        firmaUrl: formData.autorizador?.firmaUrl || "",
       },
-      trabajadores: (() => {
-        const crew = staffList.filter((m) => m.rol !== "autorizador");
-        return crew.length > 0 ? crew : [...staffList];
-      })(),
-    });
+      trabajadores: currentCrew,
+    };
 
-    showToast("¡Nuevo ATS iniciado! Se conservó la información de la empresa, preferencias y personal.");
+    const reconciled = reconcileAllSignatures(draftForm, staffList);
+    handleFormDataChange(reconciled.formData);
+
+    showToast("¡Nuevo ATS iniciado! Se conservaron la empresa, personal y todas las firmas guardadas.");
   };
 
   // Sincronización manual completa en 3 capas (LocalStorage + IndexedDB + Servidor)
@@ -1912,7 +2018,9 @@ function ATSAppContent() {
         isOpen={isHistoryModalOpen}
         onClose={() => {
           setIsHistoryModalOpen(false);
-          setHistoryCount(getHistoryRecords().length);
+          getAllHistoryRecordsCombined()
+            .then((all) => setHistoryCount(all.length))
+            .catch(() => setHistoryCount(getHistoryRecords().length));
         }}
         onLoadATS={handleLoadATSFromHistory}
         onNewATS={() => {
@@ -1922,6 +2030,13 @@ function ATSAppContent() {
         currentATSId={currentHistoryId || undefined}
         onSaveCurrentATS={() => handleSaveCurrentATS(true)}
         onDeleteRecord={handleDeleteHistoryRecord}
+        onHistoryChange={(count) => {
+          setHistoryCount(count);
+          refreshPendingCount().catch(() => {});
+          if (isOnline) {
+            syncNow().catch(() => {});
+          }
+        }}
       />
 
       {/* PREFERENCES & FULL BACKUP MODAL */}

@@ -37,6 +37,7 @@ interface ATSHistoryModalProps {
   currentATSId?: string;
   onSaveCurrentATS?: () => void;
   onDeleteRecord?: (recordId: string) => void;
+  onHistoryChange?: (count: number) => void;
 }
 
 export const ATSHistoryModal: React.FC<ATSHistoryModalProps> = ({
@@ -47,10 +48,13 @@ export const ATSHistoryModal: React.FC<ATSHistoryModalProps> = ({
   currentATSId,
   onSaveCurrentATS,
   onDeleteRecord,
+  onHistoryChange,
 }) => {
   const [records, setRecords] = useState<ATSHistoryRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+  const [lastDuplicatedRecord, setLastDuplicatedRecord] = useState<ATSHistoryRecord | null>(null);
   const [feedbackNotice, setFeedbackNotice] = useState<{
     type: "success" | "error";
     text: string;
@@ -62,24 +66,27 @@ export const ATSHistoryModal: React.FC<ATSHistoryModalProps> = ({
       refreshList();
       setDeleteConfirmId(null);
       setFeedbackNotice(null);
+      setLastDuplicatedRecord(null);
     }
   }, [isOpen]);
 
-  const refreshList = () => {
+  const refreshList = async () => {
     const syncList = getHistoryRecords();
-    setRecords(syncList);
-    getAllHistoryRecordsCombined()
-      .then((combined) => {
-        setRecords(combined);
-      })
-      .catch(() => {});
+    setRecords((prev) => (syncList.length >= prev.length ? syncList : prev));
+    try {
+      const combined = await getAllHistoryRecordsCombined();
+      setRecords(combined);
+      onHistoryChange?.(combined.length);
+    } catch {
+      // mantener lista actual
+    }
   };
 
   const showNotice = (type: "success" | "error", text: string) => {
     setFeedbackNotice({ type, text });
     setTimeout(() => {
       setFeedbackNotice(null);
-    }, 4500);
+    }, 6000);
   };
 
   // Filtrado reactivo en tiempo real
@@ -99,22 +106,37 @@ export const ATSHistoryModal: React.FC<ATSHistoryModalProps> = ({
     e.stopPropagation();
     deleteHistoryRecord(id);
     onDeleteRecord?.(id);
-    refreshList();
+    setRecords((prev) => {
+      const next = prev.filter((r) => r.id !== id);
+      onHistoryChange?.(next.length);
+      return next;
+    });
     setDeleteConfirmId(null);
+    if (lastDuplicatedRecord?.id === id) {
+      setLastDuplicatedRecord(null);
+    }
     showNotice("success", "El registro ha sido eliminado del historial correctamente.");
   };
 
-  const handleDuplicate = (record: ATSHistoryRecord, e: React.MouseEvent) => {
+  const handleDuplicate = async (record: ATSHistoryRecord, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (duplicatingId) return;
+    setDuplicatingId(record.id);
     try {
-      const duplicated = duplicateHistoryRecord(record);
-      refreshList();
-      showNotice("success", `¡ATS duplicado como nueva plantilla con fecha de hoy!`);
-      // Opcional: cargar directamente el duplicado
-      onLoadATS(duplicated, "form");
-      onClose();
-    } catch {
-      showNotice("error", "No se pudo duplicar el registro.");
+      const duplicated = await duplicateHistoryRecord(record, records);
+      const updatedList = [duplicated, ...records.filter((r) => r.id !== duplicated.id)];
+      setRecords(updatedList);
+      setLastDuplicatedRecord(duplicated);
+      onHistoryChange?.(updatedList.length);
+      showNotice(
+        "success",
+        `¡ATS duplicado: "${duplicated.titulo}"! Puedes seguir duplicando otros ATS o abrir esta copia.`
+      );
+    } catch (err) {
+      console.error("Error duplicando ATS:", err);
+      showNotice("error", "No se pudo duplicar el registro. Intente nuevamente.");
+    } finally {
+      setDuplicatingId(null);
     }
   };
 
@@ -158,18 +180,33 @@ export const ATSHistoryModal: React.FC<ATSHistoryModalProps> = ({
         {/* NOTIFICACIÓN TOAST DENTRO DEL MODAL */}
         {feedbackNotice && (
           <div
-            className={`px-4 py-2.5 text-xs font-semibold flex items-center gap-2 transition-all ${
+            className={`px-4 py-2.5 text-xs font-semibold flex flex-wrap items-center justify-between gap-2 transition-all ${
               feedbackNotice.type === "success"
                 ? "bg-emerald-50 text-emerald-800 border-b border-emerald-200"
                 : "bg-red-50 text-red-800 border-b border-red-200"
             }`}
           >
-            {feedbackNotice.type === "success" ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            ) : (
-              <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              {feedbackNotice.type === "success" ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+              )}
+              <span className="truncate">{feedbackNotice.text}</span>
+            </div>
+            {feedbackNotice.type === "success" && lastDuplicatedRecord && (
+              <button
+                type="button"
+                onClick={() => {
+                  onLoadATS(lastDuplicatedRecord, "form");
+                  onClose();
+                }}
+                className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold transition-colors cursor-pointer"
+              >
+                <Edit3 className="w-3 h-3" />
+                <span>Abrir copia</span>
+              </button>
             )}
-            <span>{feedbackNotice.text}</span>
           </div>
         )}
 
@@ -426,10 +463,12 @@ export const ATSHistoryModal: React.FC<ATSHistoryModalProps> = ({
                           <button
                             type="button"
                             onClick={(e) => handleDuplicate(item, e)}
-                            className="p-1.5 text-slate-500 hover:text-amber-800 hover:bg-amber-50 rounded-lg border border-transparent hover:border-amber-200 transition-colors cursor-pointer"
-                            title="Duplicar como plantilla (con fecha actual)"
+                            disabled={duplicatingId !== null}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                            title="Crear una copia independiente de este ATS con fecha actual"
                           >
-                            <Copy className="w-4 h-4" />
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>{duplicatingId === item.id ? "Copiando..." : "Duplicar"}</span>
                           </button>
 
                           {/* Eliminar Registro */}
