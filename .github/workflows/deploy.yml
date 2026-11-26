@@ -2,7 +2,7 @@ name: Deploy PEYEX to GitHub Pages
 
 on:
   push:
-    branches: ["main"] # Cambia a tu rama principal si es otra (ej. master)
+    branches: ["main"] # Cambia a tu rama si no usas main
   workflow_dispatch:
 
 permissions:
@@ -33,6 +33,23 @@ jobs:
       - name: Build PEYEX
         run: bun run build
 
+      - name: Prepare clean artifact without symlinks or hard links
+        run: |
+          rm -rf ./public_pages
+          mkdir -p ./public_pages
+
+          # Cambia "./dist" por la carpeta donde tu build deja los archivos (ej. ./build, ./out o . si es estático)
+          SOURCE_DIR="./dist"
+
+          # Copia dereferenciando symlinks (-L) y creando copias reales
+          cp -rL "$SOURCE_DIR/." "./public_pages/"
+
+          # Elimina cualquier enlace simbólico o archivo con más de 1 hard link dentro de public_pages
+          find ./public_pages -type l -delete
+          find ./public_pages -type f -links +1 -exec cp --remove-destination {} {}.tmp \; -exec mv {}.tmp {} \;
+
+          ls -la ./public_pages
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
@@ -40,7 +57,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: github-pages
-          path: "./dist" # Cámbialo a "./build" o "./" según dónde genere tu build
+          path: "./public_pages"
 
       - name: Deploy to GitHub Pages
         id: deployment
