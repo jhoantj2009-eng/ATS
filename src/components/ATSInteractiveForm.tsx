@@ -739,30 +739,59 @@ export const ATSInteractiveForm: React.FC<ATSInteractiveFormProps> = ({
             <h4 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide">
               Vigencia del Permiso de Trabajo Seguro
             </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
               <div>
-                <label className="block text-xs sm:text-sm font-bold text-slate-700 mb-1">Fecha de Vigencia</label>
+                <label className="block text-xs sm:text-sm font-bold text-slate-700 mb-1">
+                  Fecha de Inicio (Desde)
+                </label>
                 <input
                   type="date"
-                  value={formData.permisoValidoDesdeFecha}
-                  onChange={(e) => updateField("permisoValidoDesdeFecha", e.target.value)}
+                  value={formData.permisoValidoDesdeFecha || ""}
+                  onChange={(e) => {
+                    const nextDesde = e.target.value;
+                    onChangeFormData((prev) => ({
+                      ...prev,
+                      permisoValidoDesdeFecha: nextDesde,
+                      permisoValidoHastaFecha:
+                        !prev.permisoValidoHastaFecha ||
+                        (nextDesde && prev.permisoValidoHastaFecha < nextDesde)
+                          ? nextDesde
+                          : prev.permisoValidoHastaFecha,
+                    }));
+                  }}
                   className="w-full min-h-[48px] h-12 text-base px-3.5 py-2.5 rounded-xl border-2 border-slate-300 bg-white text-slate-900 font-medium focus:border-slate-900 focus:outline-none"
                 />
               </div>
               <div>
-                <label className="block text-xs sm:text-sm font-bold text-slate-700 mb-1">Hora de Inicio (Desde)</label>
+                <label className="block text-xs sm:text-sm font-bold text-slate-700 mb-1">
+                  Hora de Inicio (Desde)
+                </label>
                 <input
                   type="time"
-                  value={formData.permisoValidoDesdeHora}
+                  value={formData.permisoValidoDesdeHora || ""}
                   onChange={(e) => updateField("permisoValidoDesdeHora", e.target.value)}
                   className="w-full min-h-[48px] h-12 text-base px-3.5 py-2.5 rounded-xl border-2 border-slate-300 bg-white text-slate-900 font-medium focus:border-slate-900 focus:outline-none"
                 />
               </div>
               <div>
-                <label className="block text-xs sm:text-sm font-bold text-slate-700 mb-1">Hora de Cierre (Hasta)</label>
+                <label className="block text-xs sm:text-sm font-bold text-slate-700 mb-1">
+                  Fecha de Cierre (Hasta)
+                </label>
+                <input
+                  type="date"
+                  value={formData.permisoValidoHastaFecha || ""}
+                  min={formData.permisoValidoDesdeFecha || undefined}
+                  onChange={(e) => updateField("permisoValidoHastaFecha", e.target.value)}
+                  className="w-full min-h-[48px] h-12 text-base px-3.5 py-2.5 rounded-xl border-2 border-slate-300 bg-white text-slate-900 font-medium focus:border-slate-900 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs sm:text-sm font-bold text-slate-700 mb-1">
+                  Hora de Cierre (Hasta)
+                </label>
                 <input
                   type="time"
-                  value={formData.permisoValidoHastaHora}
+                  value={formData.permisoValidoHastaHora || ""}
                   onChange={(e) => updateField("permisoValidoHastaHora", e.target.value)}
                   className="w-full min-h-[48px] h-12 text-base px-3.5 py-2.5 rounded-xl border-2 border-slate-300 bg-white text-slate-900 font-medium focus:border-slate-900 focus:outline-none"
                 />

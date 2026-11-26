@@ -633,7 +633,10 @@ export const ATSPrintFormat: React.FC<ATSPrintFormatProps> = ({
                         }}
                       >
                         <span style={{ fontWeight: 600 }}>
-                          {formData.permisoValidoHastaFecha || formData.fechaDiligenciamiento || "—"}
+                          {formData.permisoValidoHastaFecha ||
+                            formData.permisoValidoDesdeFecha ||
+                            formData.fechaDiligenciamiento ||
+                            "—"}
                         </span>
                         <span style={{ color: "#4b5563", marginLeft: "6px" }}>Hora:</span>{" "}
                         <span style={{ fontWeight: 600 }}>{formData.permisoValidoHastaHora || "17:00"}</span>
