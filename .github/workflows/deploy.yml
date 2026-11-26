@@ -2,7 +2,7 @@ name: Deploy PEYEX to GitHub Pages
 
 on:
   push:
-    branches: ["main"] # Cambia a tu rama si no usas main
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
@@ -15,10 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build_and_deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -30,35 +27,24 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: Build PEYEX
+      - name: Build project
         run: bun run build
 
-      - name: Prepare clean artifact without symlinks or hard links
-        run: |
-          rm -rf ./public_pages
-          mkdir -p ./public_pages
-
-          # Cambia "./dist" por la carpeta donde tu build deja los archivos (ej. ./build, ./out o . si es estático)
-          SOURCE_DIR="./dist"
-
-          # Copia dereferenciando symlinks (-L) y creando copias reales
-          cp -rL "$SOURCE_DIR/." "./public_pages/"
-
-          # Elimina cualquier enlace simbólico o archivo con más de 1 hard link dentro de public_pages
-          find ./public_pages -type l -delete
-          find ./public_pages -type f -links +1 -exec cp --remove-destination {} {}.tmp \; -exec mv {}.tmp {} \;
-
-          ls -la ./public_pages
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: github-pages
-          path: "./public_pages"
+          path: "./dist" # Si la salida del build no es dist, usa ./build o ./ según corresponda
 
+  deploy:
+    needs: build
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
